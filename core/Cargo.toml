@@ -25,6 +25,7 @@ unicode-normalization = { workspace = true }
 pretty_assertions = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+unicode_names2 = { workspace = true }
 
 [build-dependencies]
 htmlize = { workspace = true, features = ["entities"] }
