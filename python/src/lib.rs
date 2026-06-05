@@ -3,7 +3,9 @@ use std::panic;
 use ::plsfix::{ExplainedText, ExplanationStep, Normalization, TextFixerConfig};
 use pyo3::prelude::*;
 
-#[pyclass]
+// Accepted as a function argument, so it needs the `FromPyObject` derive
+// (opt-in as of pyo3 0.28).
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyTextFixerConfig {
     pub unescape_html: Option<bool>,
@@ -22,7 +24,8 @@ pub struct PyTextFixerConfig {
     pub max_decode_length: i32,
 }
 
-#[pyclass]
+// Output-only, never extracted from Python, so skip the `FromPyObject` derive.
+#[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyExplanationStep {
     pub transformation: String,
@@ -36,7 +39,8 @@ impl PyExplanationStep {
     }
 }
 
-#[pyclass]
+// Output-only, never extracted from Python, so skip the `FromPyObject` derive.
+#[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyExplainedText {
     pub text: String,
