@@ -6,6 +6,7 @@ use regex::Regex;
 use crate::codecs::sloppy::{
     Codec, CodecType, CP437, ISO_8859_2, LATIN_1, MACROMAN, SLOPPY_WINDOWS_1250,
     SLOPPY_WINDOWS_1251, SLOPPY_WINDOWS_1252, SLOPPY_WINDOWS_1253, SLOPPY_WINDOWS_1254,
+    SLOPPY_WINDOWS_1257,
 };
 
 pub fn possible_encoding(text: &str, encoding: CodecType) -> bool {
@@ -25,10 +26,11 @@ lazy_static! {
 
         codecs.push((CodecType::Latin1, &*LATIN_1));
         codecs.push((CodecType::SloppyWindows1252, &*SLOPPY_WINDOWS_1252));
-        codecs.push((CodecType::SloppyWindows1250, &*SLOPPY_WINDOWS_1250));
         codecs.push((CodecType::SloppyWindows1251, &*SLOPPY_WINDOWS_1251));
+        codecs.push((CodecType::SloppyWindows1250, &*SLOPPY_WINDOWS_1250));
         codecs.push((CodecType::SloppyWindows1253, &*SLOPPY_WINDOWS_1253));
         codecs.push((CodecType::SloppyWindows1254, &*SLOPPY_WINDOWS_1254));
+        codecs.push((CodecType::SloppyWindows1257, &*SLOPPY_WINDOWS_1257));
         codecs.push((CodecType::Iso88592, &*ISO_8859_2));
         codecs.push((CodecType::MacRoman, &*MACROMAN));
         codecs.push((CodecType::Cp437, &*CP437));
@@ -308,6 +310,31 @@ lazy_static! {
 
 
     /*
+    The character classes that UTF8_DETECTOR_RE is built from, keyed the same way
+    as ftfy's UTF8_CLUES dict. The per-character `encoding:byte` annotations that
+    document where each character comes from live in the test that pins this map to
+    ftfy (see test_utf8_clues_match_ftfy).
+    */
+    static ref UTF8_CLUES: FxHashMap<&'static str, &'static str> = {
+        let mut m = FxHashMap::default();
+        // Letters that decode to 0xC2 - 0xDF in a Latin-1-like encoding
+        m.insert("utf8_first_of_2", "ĂÂÄĀÅÃÆĆČÇĎĐÉĚÊËĖÈĒĘÐĞĢÍÎÏİÌĪĶĹĻŁŃŇŅÑÓÔÖŐÒŌØÕŘŚŠŞŢÞÚÛÜŰÙŪŲŮÝŹŽŻß×ΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩΪΫάέήίВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ");
+        // Letters that decode to 0xE0 - 0xEF in a Latin-1-like encoding
+        m.insert("utf8_first_of_3", "áăâäàāąåãæćčçďéěêëėèēęęģíîïìīįķĺļŕźΰαβγδεζηθικλμνξοабвгдежзийклмноп");
+        // Letters that decode to 0xF0 or 0xF3 in a Latin-1-like encoding.
+        // (Other leading bytes correspond only to unassigned codepoints)
+        m.insert("utf8_first_of_4", "đðğóšπσру");
+        // Letters that decode to 0x80 - 0xBF in a Latin-1-like encoding,
+        // including a space standing in for 0xA0
+        m.insert("utf8_continuation", r"\x80-\xbf ĄÆĽŁØŖŚŠŞŤŸŹŽŻŒąæƒľłøŗśšşťźžżœˆˇ˘˛˜˝΄΅ΆΈΉΊΌΎΏЁЂЃЄЅІЇЈЉЊЋЌЎЏёђѓєѕіїјљњћќўџҐґ–—―‘’‚“”„†‡•…‰‹›€№™");
+        // Letters that decode to 0x80 - 0xBF in a Latin-1-like encoding,
+        // and don't usually stand for themselves when adjacent to mojibake.
+        // This excludes spaces, dashes, 'bullet', quotation marks, and ellipses.
+        m.insert("utf8_continuation_strict", r"\x80-\xbfĄÆĽŁØŖŚŠŞŤŸŹŽŻŒąæƒľłøŗśšşťźžżœˆˇ˘˛˜˝΄΅ΆΈΉΊΌΎΏЁЂЃЄЅІЇЈЉЊЋЌЎЏёђѓєѕіїјљњћќўџҐґ†‡‰‹›€№™");
+        m
+    };
+
+    /*
     This regex uses UTF8_CLUES to find sequences of likely mojibake.
     It matches them with + so that several adjacent UTF-8-looking sequences
     get coalesced into one, allowing them to be fixed more efficiently
@@ -337,20 +364,11 @@ lazy_static! {
 |
 [{utf8_first_of_4}][{utf8_continuation}]{{3}}
 )+",
-            // Letters that decode to 0x80 - 0xBF in a Latin-1-like encoding,
-            // and don't usually stand for themselves when adjacent to mojibake.
-            // This excludes spaces, dashes, quotation marks, and ellipses.
-            utf8_continuation_strict = r"\x80-\xbfĄąĽľŁłŒœŚśŞşŠšŤťŸŹźŻżŽžƒˆˇ˘˛˜˝΄΅ΆΈΉΊΌΎΏЁЂЃЄЅІЇЈЉЊЋЌЎЏёђѓєѕіїјљњћќўџҐґ†‡•‰‹›€№™",
-            // Letters that decode to 0xC2 - 0xDF in a Latin-1-like encoding
-            utf8_first_of_2 = "ÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßĂĆČĎĐĘĚĞİĹŃŇŐŘŞŢŮŰΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩΪΫάέήίВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ",
-            // Letters that decode to 0xE0 - 0xEF in a Latin-1-like encoding
-            utf8_first_of_3 = "àáâãäåæçèéêëìíîïăćčďęěĺŕΰαβγδεζηθικλμνξοабвгдежзийклмноп",
-            // Letters that decode to 0xF0 or 0xF3 in a Latin-1-like encoding.
-            // # (Other leading bytes correspond only to unassigned codepoints)
-            utf8_first_of_4 = "ðóđğπσру",
-            // Letters that decode to 0x80 - 0xBF in a Latin-1-like encoding,
-            // including a space standing in for 0xA0
-            utf8_continuation = r"\x80-\xbfĄąĽľŁłŒœŚśŞşŠšŤťŸŹźŻżŽžƒˆˇ˘˛˜˝΄΅ΆΈΉΊΌΎΏЁЂЃЄЅІЇЈЉЊЋЌЎЏёђѓєѕіїјљњћќўџҐґ–—―‘’‚“”„†‡•…‰‹›€№™ "
+            utf8_continuation_strict = UTF8_CLUES["utf8_continuation_strict"],
+            utf8_first_of_2 = UTF8_CLUES["utf8_first_of_2"],
+            utf8_first_of_3 = UTF8_CLUES["utf8_first_of_3"],
+            utf8_first_of_4 = UTF8_CLUES["utf8_first_of_4"],
+            utf8_continuation = UTF8_CLUES["utf8_continuation"],
         )
         .replace("\n", ""),
     )
@@ -2597,3 +2615,453 @@ static HTML_ITEMS: [(&str, &str); 2231] = [
     (r##"zwj;"##, r##"‍"##),
     (r##"zwnj;"##, r##"‌"##),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::UTF8_CLUES;
+
+    /// Look up a character by its Unicode name (how ftfy spells its clues),
+    /// mirroring python's `\N{...}` escape.
+    fn c(name: &str) -> String {
+        unicode_names2::character(name)
+            .unwrap_or_else(|| panic!("unknown Unicode name {name:?}"))
+            .into()
+    }
+
+    /// Verify our UTF8_CLUES matches ftfy's exactly, character for character.
+    /// Mirrors test_mojibake_categories_match_ftfy in badness.rs; the per-character
+    /// `encoding:byte` comments are copied verbatim from ftfy's chardata.py.
+    #[test]
+    fn test_utf8_clues_match_ftfy() {
+        let expected: std::collections::BTreeMap<&str, String> = [
+            // Letters that decode to 0xC2 - 0xDF in a Latin-1-like encoding
+            (
+                "utf8_first_of_2",
+                vec![
+                    c("LATIN CAPITAL LETTER A WITH BREVE"),      // windows-1250:C3
+                    c("LATIN CAPITAL LETTER A WITH CIRCUMFLEX"), // latin-1:C2
+                    c("LATIN CAPITAL LETTER A WITH DIAERESIS"),  // latin-1:C4
+                    c("LATIN CAPITAL LETTER A WITH MACRON"),     // windows-1257:C2
+                    c("LATIN CAPITAL LETTER A WITH RING ABOVE"), // latin-1:C5
+                    c("LATIN CAPITAL LETTER A WITH TILDE"),      // latin-1:C3
+                    c("LATIN CAPITAL LETTER AE"),                // latin-1:C6
+                    c("LATIN CAPITAL LETTER C WITH ACUTE"),      // windows-1250:C6
+                    c("LATIN CAPITAL LETTER C WITH CARON"),      // windows-1250:C8
+                    c("LATIN CAPITAL LETTER C WITH CEDILLA"),    // latin-1:C7
+                    c("LATIN CAPITAL LETTER D WITH CARON"),      // windows-1250:CF
+                    c("LATIN CAPITAL LETTER D WITH STROKE"),     // windows-1250:D0
+                    c("LATIN CAPITAL LETTER E WITH ACUTE"),      // latin-1:C9
+                    c("LATIN CAPITAL LETTER E WITH CARON"),      // windows-1250:CC
+                    c("LATIN CAPITAL LETTER E WITH CIRCUMFLEX"), // latin-1:CA
+                    c("LATIN CAPITAL LETTER E WITH DIAERESIS"),  // latin-1:CB
+                    c("LATIN CAPITAL LETTER E WITH DOT ABOVE"),  // windows-1257:CB
+                    c("LATIN CAPITAL LETTER E WITH GRAVE"),      // latin-1:C8
+                    c("LATIN CAPITAL LETTER E WITH MACRON"),     // windows-1257:C7
+                    c("LATIN CAPITAL LETTER E WITH OGONEK"),     // windows-1250:CA
+                    c("LATIN CAPITAL LETTER ETH"),               // latin-1:D0
+                    c("LATIN CAPITAL LETTER G WITH BREVE"),      // windows-1254:D0
+                    c("LATIN CAPITAL LETTER G WITH CEDILLA"),    // windows-1257:CC
+                    c("LATIN CAPITAL LETTER I WITH ACUTE"),      // latin-1:CD
+                    c("LATIN CAPITAL LETTER I WITH CIRCUMFLEX"), // latin-1:CE
+                    c("LATIN CAPITAL LETTER I WITH DIAERESIS"),  // latin-1:CF
+                    c("LATIN CAPITAL LETTER I WITH DOT ABOVE"),  // windows-1254:DD
+                    c("LATIN CAPITAL LETTER I WITH GRAVE"),      // latin-1:CC
+                    c("LATIN CAPITAL LETTER I WITH MACRON"),     // windows-1257:CE
+                    c("LATIN CAPITAL LETTER K WITH CEDILLA"),    // windows-1257:CD
+                    c("LATIN CAPITAL LETTER L WITH ACUTE"),      // windows-1250:C5
+                    c("LATIN CAPITAL LETTER L WITH CEDILLA"),    // windows-1257:CF
+                    c("LATIN CAPITAL LETTER L WITH STROKE"),     // windows-1257:D9
+                    c("LATIN CAPITAL LETTER N WITH ACUTE"),      // windows-1250:D1
+                    c("LATIN CAPITAL LETTER N WITH CARON"),      // windows-1250:D2
+                    c("LATIN CAPITAL LETTER N WITH CEDILLA"),    // windows-1257:D2
+                    c("LATIN CAPITAL LETTER N WITH TILDE"),      // latin-1:D1
+                    c("LATIN CAPITAL LETTER O WITH ACUTE"),      // latin-1:D3
+                    c("LATIN CAPITAL LETTER O WITH CIRCUMFLEX"), // latin-1:D4
+                    c("LATIN CAPITAL LETTER O WITH DIAERESIS"),  // latin-1:D6
+                    c("LATIN CAPITAL LETTER O WITH DOUBLE ACUTE"), // windows-1250:D5
+                    c("LATIN CAPITAL LETTER O WITH GRAVE"),      // latin-1:D2
+                    c("LATIN CAPITAL LETTER O WITH MACRON"),     // windows-1257:D4
+                    c("LATIN CAPITAL LETTER O WITH STROKE"),     // latin-1:D8
+                    c("LATIN CAPITAL LETTER O WITH TILDE"),      // latin-1:D5
+                    c("LATIN CAPITAL LETTER R WITH CARON"),      // windows-1250:D8
+                    c("LATIN CAPITAL LETTER S WITH ACUTE"),      // windows-1257:DA
+                    c("LATIN CAPITAL LETTER S WITH CARON"),      // windows-1257:D0
+                    c("LATIN CAPITAL LETTER S WITH CEDILLA"),    // windows-1254:DE
+                    c("LATIN CAPITAL LETTER T WITH CEDILLA"),    // windows-1250:DE
+                    c("LATIN CAPITAL LETTER THORN"),             // latin-1:DE
+                    c("LATIN CAPITAL LETTER U WITH ACUTE"),      // latin-1:DA
+                    c("LATIN CAPITAL LETTER U WITH CIRCUMFLEX"), // latin-1:DB
+                    c("LATIN CAPITAL LETTER U WITH DIAERESIS"),  // latin-1:DC
+                    c("LATIN CAPITAL LETTER U WITH DOUBLE ACUTE"), // windows-1250:DB
+                    c("LATIN CAPITAL LETTER U WITH GRAVE"),      // latin-1:D9
+                    c("LATIN CAPITAL LETTER U WITH MACRON"),     // windows-1257:DB
+                    c("LATIN CAPITAL LETTER U WITH OGONEK"),     // windows-1257:D8
+                    c("LATIN CAPITAL LETTER U WITH RING ABOVE"), // windows-1250:D9
+                    c("LATIN CAPITAL LETTER Y WITH ACUTE"),      // latin-1:DD
+                    c("LATIN CAPITAL LETTER Z WITH ACUTE"),      // windows-1257:CA
+                    c("LATIN CAPITAL LETTER Z WITH CARON"),      // windows-1257:DE
+                    c("LATIN CAPITAL LETTER Z WITH DOT ABOVE"),  // windows-1257:DD
+                    c("LATIN SMALL LETTER SHARP S"),             // latin-1:DF
+                    c("MULTIPLICATION SIGN"),                    // latin-1:D7
+                    c("GREEK CAPITAL LETTER BETA"),              // windows-1253:C2
+                    c("GREEK CAPITAL LETTER GAMMA"),             // windows-1253:C3
+                    c("GREEK CAPITAL LETTER DELTA"),             // windows-1253:C4
+                    c("GREEK CAPITAL LETTER EPSILON"),           // windows-1253:C5
+                    c("GREEK CAPITAL LETTER ZETA"),              // windows-1253:C6
+                    c("GREEK CAPITAL LETTER ETA"),               // windows-1253:C7
+                    c("GREEK CAPITAL LETTER THETA"),             // windows-1253:C8
+                    c("GREEK CAPITAL LETTER IOTA"),              // windows-1253:C9
+                    c("GREEK CAPITAL LETTER KAPPA"),             // windows-1253:CA
+                    c("GREEK CAPITAL LETTER LAMDA"),             // windows-1253:CB
+                    c("GREEK CAPITAL LETTER MU"),                // windows-1253:CC
+                    c("GREEK CAPITAL LETTER NU"),                // windows-1253:CD
+                    c("GREEK CAPITAL LETTER XI"),                // windows-1253:CE
+                    c("GREEK CAPITAL LETTER OMICRON"),           // windows-1253:CF
+                    c("GREEK CAPITAL LETTER PI"),                // windows-1253:D0
+                    c("GREEK CAPITAL LETTER RHO"),               // windows-1253:D1
+                    c("GREEK CAPITAL LETTER SIGMA"),             // windows-1253:D3
+                    c("GREEK CAPITAL LETTER TAU"),               // windows-1253:D4
+                    c("GREEK CAPITAL LETTER UPSILON"),           // windows-1253:D5
+                    c("GREEK CAPITAL LETTER PHI"),               // windows-1253:D6
+                    c("GREEK CAPITAL LETTER CHI"),               // windows-1253:D7
+                    c("GREEK CAPITAL LETTER PSI"),               // windows-1253:D8
+                    c("GREEK CAPITAL LETTER OMEGA"),             // windows-1253:D9
+                    c("GREEK CAPITAL LETTER IOTA WITH DIALYTIKA"), // windows-1253:DA
+                    c("GREEK CAPITAL LETTER UPSILON WITH DIALYTIKA"), // windows-1253:DB
+                    c("GREEK SMALL LETTER ALPHA WITH TONOS"),    // windows-1253:DC
+                    c("GREEK SMALL LETTER EPSILON WITH TONOS"),  // windows-1253:DD
+                    c("GREEK SMALL LETTER ETA WITH TONOS"),      // windows-1253:DE
+                    c("GREEK SMALL LETTER IOTA WITH TONOS"),     // windows-1253:DF
+                    c("CYRILLIC CAPITAL LETTER VE"),             // windows-1251:C2
+                    c("CYRILLIC CAPITAL LETTER GHE"),            // windows-1251:C3
+                    c("CYRILLIC CAPITAL LETTER DE"),             // windows-1251:C4
+                    c("CYRILLIC CAPITAL LETTER IE"),             // windows-1251:C5
+                    c("CYRILLIC CAPITAL LETTER ZHE"),            // windows-1251:C6
+                    c("CYRILLIC CAPITAL LETTER ZE"),             // windows-1251:C7
+                    c("CYRILLIC CAPITAL LETTER I"),              // windows-1251:C8
+                    c("CYRILLIC CAPITAL LETTER SHORT I"),        // windows-1251:C9
+                    c("CYRILLIC CAPITAL LETTER KA"),             // windows-1251:CA
+                    c("CYRILLIC CAPITAL LETTER EL"),             // windows-1251:CB
+                    c("CYRILLIC CAPITAL LETTER EM"),             // windows-1251:CC
+                    c("CYRILLIC CAPITAL LETTER EN"),             // windows-1251:CD
+                    c("CYRILLIC CAPITAL LETTER O"),              // windows-1251:CE
+                    c("CYRILLIC CAPITAL LETTER PE"),             // windows-1251:CF
+                    c("CYRILLIC CAPITAL LETTER ER"),             // windows-1251:D0
+                    c("CYRILLIC CAPITAL LETTER ES"),             // windows-1251:D1
+                    c("CYRILLIC CAPITAL LETTER TE"),             // windows-1251:D2
+                    c("CYRILLIC CAPITAL LETTER U"),              // windows-1251:D3
+                    c("CYRILLIC CAPITAL LETTER EF"),             // windows-1251:D4
+                    c("CYRILLIC CAPITAL LETTER HA"),             // windows-1251:D5
+                    c("CYRILLIC CAPITAL LETTER TSE"),            // windows-1251:D6
+                    c("CYRILLIC CAPITAL LETTER CHE"),            // windows-1251:D7
+                    c("CYRILLIC CAPITAL LETTER SHA"),            // windows-1251:D8
+                    c("CYRILLIC CAPITAL LETTER SHCHA"),          // windows-1251:D9
+                    c("CYRILLIC CAPITAL LETTER HARD SIGN"),      // windows-1251:DA
+                    c("CYRILLIC CAPITAL LETTER YERU"),           // windows-1251:DB
+                    c("CYRILLIC CAPITAL LETTER SOFT SIGN"),      // windows-1251:DC
+                    c("CYRILLIC CAPITAL LETTER E"),              // windows-1251:DD
+                    c("CYRILLIC CAPITAL LETTER YU"),             // windows-1251:DE
+                    c("CYRILLIC CAPITAL LETTER YA"),             // windows-1251:DF
+                ]
+                .join(""),
+            ),
+            // Letters that decode to 0xE0 - 0xEF in a Latin-1-like encoding
+            (
+                "utf8_first_of_3",
+                vec![
+                    c("LATIN SMALL LETTER A WITH ACUTE"),      // latin-1:E1
+                    c("LATIN SMALL LETTER A WITH BREVE"),      // windows-1250:E3
+                    c("LATIN SMALL LETTER A WITH CIRCUMFLEX"), // latin-1:E2
+                    c("LATIN SMALL LETTER A WITH DIAERESIS"),  // latin-1:E4
+                    c("LATIN SMALL LETTER A WITH GRAVE"),      // latin-1:E0
+                    c("LATIN SMALL LETTER A WITH MACRON"),     // windows-1257:E2
+                    c("LATIN SMALL LETTER A WITH OGONEK"),     // windows-1257:E0
+                    c("LATIN SMALL LETTER A WITH RING ABOVE"), // latin-1:E5
+                    c("LATIN SMALL LETTER A WITH TILDE"),      // latin-1:E3
+                    c("LATIN SMALL LETTER AE"),                // latin-1:E6
+                    c("LATIN SMALL LETTER C WITH ACUTE"),      // windows-1250:E6
+                    c("LATIN SMALL LETTER C WITH CARON"),      // windows-1250:E8
+                    c("LATIN SMALL LETTER C WITH CEDILLA"),    // latin-1:E7
+                    c("LATIN SMALL LETTER D WITH CARON"),      // windows-1250:EF
+                    c("LATIN SMALL LETTER E WITH ACUTE"),      // latin-1:E9
+                    c("LATIN SMALL LETTER E WITH CARON"),      // windows-1250:EC
+                    c("LATIN SMALL LETTER E WITH CIRCUMFLEX"), // latin-1:EA
+                    c("LATIN SMALL LETTER E WITH DIAERESIS"),  // latin-1:EB
+                    c("LATIN SMALL LETTER E WITH DOT ABOVE"),  // windows-1257:EB
+                    c("LATIN SMALL LETTER E WITH GRAVE"),      // latin-1:E8
+                    c("LATIN SMALL LETTER E WITH MACRON"),     // windows-1257:E7
+                    c("LATIN SMALL LETTER E WITH OGONEK"),     // windows-1250:EA
+                    c("LATIN SMALL LETTER E WITH OGONEK"),     // windows-1250:EA
+                    c("LATIN SMALL LETTER G WITH CEDILLA"),    // windows-1257:EC
+                    c("LATIN SMALL LETTER I WITH ACUTE"),      // latin-1:ED
+                    c("LATIN SMALL LETTER I WITH CIRCUMFLEX"), // latin-1:EE
+                    c("LATIN SMALL LETTER I WITH DIAERESIS"),  // latin-1:EF
+                    c("LATIN SMALL LETTER I WITH GRAVE"),      // latin-1:EC
+                    c("LATIN SMALL LETTER I WITH MACRON"),     // windows-1257:EE
+                    c("LATIN SMALL LETTER I WITH OGONEK"),     // windows-1257:E1
+                    c("LATIN SMALL LETTER K WITH CEDILLA"),    // windows-1257:ED
+                    c("LATIN SMALL LETTER L WITH ACUTE"),      // windows-1250:E5
+                    c("LATIN SMALL LETTER L WITH CEDILLA"),    // windows-1257:EF
+                    c("LATIN SMALL LETTER R WITH ACUTE"),      // windows-1250:E0
+                    c("LATIN SMALL LETTER Z WITH ACUTE"),      // windows-1257:EA
+                    c("GREEK SMALL LETTER UPSILON WITH DIALYTIKA AND TONOS"), // windows-1253:E0
+                    c("GREEK SMALL LETTER ALPHA"),             // windows-1253:E1
+                    c("GREEK SMALL LETTER BETA"),              // windows-1253:E2
+                    c("GREEK SMALL LETTER GAMMA"),             // windows-1253:E3
+                    c("GREEK SMALL LETTER DELTA"),             // windows-1253:E4
+                    c("GREEK SMALL LETTER EPSILON"),           // windows-1253:E5
+                    c("GREEK SMALL LETTER ZETA"),              // windows-1253:E6
+                    c("GREEK SMALL LETTER ETA"),               // windows-1253:E7
+                    c("GREEK SMALL LETTER THETA"),             // windows-1253:E8
+                    c("GREEK SMALL LETTER IOTA"),              // windows-1253:E9
+                    c("GREEK SMALL LETTER KAPPA"),             // windows-1253:EA
+                    c("GREEK SMALL LETTER LAMDA"),             // windows-1253:EB
+                    c("GREEK SMALL LETTER MU"),                // windows-1253:EC
+                    c("GREEK SMALL LETTER NU"),                // windows-1253:ED
+                    c("GREEK SMALL LETTER XI"),                // windows-1253:EE
+                    c("GREEK SMALL LETTER OMICRON"),           // windows-1253:EF
+                    c("CYRILLIC SMALL LETTER A"),              // windows-1251:E0
+                    c("CYRILLIC SMALL LETTER BE"),             // windows-1251:E1
+                    c("CYRILLIC SMALL LETTER VE"),             // windows-1251:E2
+                    c("CYRILLIC SMALL LETTER GHE"),            // windows-1251:E3
+                    c("CYRILLIC SMALL LETTER DE"),             // windows-1251:E4
+                    c("CYRILLIC SMALL LETTER IE"),             // windows-1251:E5
+                    c("CYRILLIC SMALL LETTER ZHE"),            // windows-1251:E6
+                    c("CYRILLIC SMALL LETTER ZE"),             // windows-1251:E7
+                    c("CYRILLIC SMALL LETTER I"),              // windows-1251:E8
+                    c("CYRILLIC SMALL LETTER SHORT I"),        // windows-1251:E9
+                    c("CYRILLIC SMALL LETTER KA"),             // windows-1251:EA
+                    c("CYRILLIC SMALL LETTER EL"),             // windows-1251:EB
+                    c("CYRILLIC SMALL LETTER EM"),             // windows-1251:EC
+                    c("CYRILLIC SMALL LETTER EN"),             // windows-1251:ED
+                    c("CYRILLIC SMALL LETTER O"),              // windows-1251:EE
+                    c("CYRILLIC SMALL LETTER PE"),             // windows-1251:EF
+                ]
+                .join(""),
+            ),
+            // Letters that decode to 0xF0 or 0xF3 in a Latin-1-like encoding.
+            // (Other leading bytes correspond only to unassigned codepoints)
+            (
+                "utf8_first_of_4",
+                vec![
+                    c("LATIN SMALL LETTER D WITH STROKE"), // windows-1250:F0
+                    c("LATIN SMALL LETTER ETH"),           // latin-1:F0
+                    c("LATIN SMALL LETTER G WITH BREVE"),  // windows-1254:F0
+                    c("LATIN SMALL LETTER O WITH ACUTE"),  // latin-1:F3
+                    c("LATIN SMALL LETTER S WITH CARON"),  // windows-1257:F0
+                    c("GREEK SMALL LETTER PI"),            // windows-1253:F0
+                    c("GREEK SMALL LETTER SIGMA"),         // windows-1253:F3
+                    c("CYRILLIC SMALL LETTER ER"),         // windows-1251:F0
+                    c("CYRILLIC SMALL LETTER U"),          // windows-1251:F3
+                ]
+                .join(""),
+            ),
+            // Letters that decode to 0x80 - 0xBF in a Latin-1-like encoding,
+            // including a space standing in for 0xA0
+            (
+                "utf8_continuation",
+                vec![
+                    r"\x80-\xbf".to_string(),
+                    c("SPACE"), // modification of latin-1:A0, NO-BREAK SPACE
+                    c("LATIN CAPITAL LETTER A WITH OGONEK"), // windows-1250:A5
+                    c("LATIN CAPITAL LETTER AE"), // windows-1257:AF
+                    c("LATIN CAPITAL LETTER L WITH CARON"), // windows-1250:BC
+                    c("LATIN CAPITAL LETTER L WITH STROKE"), // windows-1250:A3
+                    c("LATIN CAPITAL LETTER O WITH STROKE"), // windows-1257:A8
+                    c("LATIN CAPITAL LETTER R WITH CEDILLA"), // windows-1257:AA
+                    c("LATIN CAPITAL LETTER S WITH ACUTE"), // windows-1250:8C
+                    c("LATIN CAPITAL LETTER S WITH CARON"), // windows-1252:8A
+                    c("LATIN CAPITAL LETTER S WITH CEDILLA"), // windows-1250:AA
+                    c("LATIN CAPITAL LETTER T WITH CARON"), // windows-1250:8D
+                    c("LATIN CAPITAL LETTER Y WITH DIAERESIS"), // windows-1252:9F
+                    c("LATIN CAPITAL LETTER Z WITH ACUTE"), // windows-1250:8F
+                    c("LATIN CAPITAL LETTER Z WITH CARON"), // windows-1252:8E
+                    c("LATIN CAPITAL LETTER Z WITH DOT ABOVE"), // windows-1250:AF
+                    c("LATIN CAPITAL LIGATURE OE"), // windows-1252:8C
+                    c("LATIN SMALL LETTER A WITH OGONEK"), // windows-1250:B9
+                    c("LATIN SMALL LETTER AE"), // windows-1257:BF
+                    c("LATIN SMALL LETTER F WITH HOOK"), // windows-1252:83
+                    c("LATIN SMALL LETTER L WITH CARON"), // windows-1250:BE
+                    c("LATIN SMALL LETTER L WITH STROKE"), // windows-1250:B3
+                    c("LATIN SMALL LETTER O WITH STROKE"), // windows-1257:B8
+                    c("LATIN SMALL LETTER R WITH CEDILLA"), // windows-1257:BA
+                    c("LATIN SMALL LETTER S WITH ACUTE"), // windows-1250:9C
+                    c("LATIN SMALL LETTER S WITH CARON"), // windows-1252:9A
+                    c("LATIN SMALL LETTER S WITH CEDILLA"), // windows-1250:BA
+                    c("LATIN SMALL LETTER T WITH CARON"), // windows-1250:9D
+                    c("LATIN SMALL LETTER Z WITH ACUTE"), // windows-1250:9F
+                    c("LATIN SMALL LETTER Z WITH CARON"), // windows-1252:9E
+                    c("LATIN SMALL LETTER Z WITH DOT ABOVE"), // windows-1250:BF
+                    c("LATIN SMALL LIGATURE OE"), // windows-1252:9C
+                    c("MODIFIER LETTER CIRCUMFLEX ACCENT"), // windows-1252:88
+                    c("CARON"), // windows-1250:A1
+                    c("BREVE"), // windows-1250:A2
+                    c("OGONEK"), // windows-1250:B2
+                    c("SMALL TILDE"), // windows-1252:98
+                    c("DOUBLE ACUTE ACCENT"), // windows-1250:BD
+                    c("GREEK TONOS"), // windows-1253:B4
+                    c("GREEK DIALYTIKA TONOS"), // windows-1253:A1
+                    c("GREEK CAPITAL LETTER ALPHA WITH TONOS"), // windows-1253:A2
+                    c("GREEK CAPITAL LETTER EPSILON WITH TONOS"), // windows-1253:B8
+                    c("GREEK CAPITAL LETTER ETA WITH TONOS"), // windows-1253:B9
+                    c("GREEK CAPITAL LETTER IOTA WITH TONOS"), // windows-1253:BA
+                    c("GREEK CAPITAL LETTER OMICRON WITH TONOS"), // windows-1253:BC
+                    c("GREEK CAPITAL LETTER UPSILON WITH TONOS"), // windows-1253:BE
+                    c("GREEK CAPITAL LETTER OMEGA WITH TONOS"), // windows-1253:BF
+                    c("CYRILLIC CAPITAL LETTER IO"), // windows-1251:A8
+                    c("CYRILLIC CAPITAL LETTER DJE"), // windows-1251:80
+                    c("CYRILLIC CAPITAL LETTER GJE"), // windows-1251:81
+                    c("CYRILLIC CAPITAL LETTER UKRAINIAN IE"), // windows-1251:AA
+                    c("CYRILLIC CAPITAL LETTER DZE"), // windows-1251:BD
+                    c("CYRILLIC CAPITAL LETTER BYELORUSSIAN-UKRAINIAN I"), // windows-1251:B2
+                    c("CYRILLIC CAPITAL LETTER YI"), // windows-1251:AF
+                    c("CYRILLIC CAPITAL LETTER JE"), // windows-1251:A3
+                    c("CYRILLIC CAPITAL LETTER LJE"), // windows-1251:8A
+                    c("CYRILLIC CAPITAL LETTER NJE"), // windows-1251:8C
+                    c("CYRILLIC CAPITAL LETTER TSHE"), // windows-1251:8E
+                    c("CYRILLIC CAPITAL LETTER KJE"), // windows-1251:8D
+                    c("CYRILLIC CAPITAL LETTER SHORT U"), // windows-1251:A1
+                    c("CYRILLIC CAPITAL LETTER DZHE"), // windows-1251:8F
+                    c("CYRILLIC SMALL LETTER IO"), // windows-1251:B8
+                    c("CYRILLIC SMALL LETTER DJE"), // windows-1251:90
+                    c("CYRILLIC SMALL LETTER GJE"), // windows-1251:83
+                    c("CYRILLIC SMALL LETTER UKRAINIAN IE"), // windows-1251:BA
+                    c("CYRILLIC SMALL LETTER DZE"), // windows-1251:BE
+                    c("CYRILLIC SMALL LETTER BYELORUSSIAN-UKRAINIAN I"), // windows-1251:B3
+                    c("CYRILLIC SMALL LETTER YI"), // windows-1251:BF
+                    c("CYRILLIC SMALL LETTER JE"), // windows-1251:BC
+                    c("CYRILLIC SMALL LETTER LJE"), // windows-1251:9A
+                    c("CYRILLIC SMALL LETTER NJE"), // windows-1251:9C
+                    c("CYRILLIC SMALL LETTER TSHE"), // windows-1251:9E
+                    c("CYRILLIC SMALL LETTER KJE"), // windows-1251:9D
+                    c("CYRILLIC SMALL LETTER SHORT U"), // windows-1251:A2
+                    c("CYRILLIC SMALL LETTER DZHE"), // windows-1251:9F
+                    c("CYRILLIC CAPITAL LETTER GHE WITH UPTURN"), // windows-1251:A5
+                    c("CYRILLIC SMALL LETTER GHE WITH UPTURN"), // windows-1251:B4
+                    c("EN DASH"), // windows-1252:96
+                    c("EM DASH"), // windows-1252:97
+                    c("HORIZONTAL BAR"), // windows-1253:AF
+                    c("LEFT SINGLE QUOTATION MARK"), // windows-1252:91
+                    c("RIGHT SINGLE QUOTATION MARK"), // windows-1252:92
+                    c("SINGLE LOW-9 QUOTATION MARK"), // windows-1252:82
+                    c("LEFT DOUBLE QUOTATION MARK"), // windows-1252:93
+                    c("RIGHT DOUBLE QUOTATION MARK"), // windows-1252:94
+                    c("DOUBLE LOW-9 QUOTATION MARK"), // windows-1252:84
+                    c("DAGGER"), // windows-1252:86
+                    c("DOUBLE DAGGER"), // windows-1252:87
+                    c("BULLET"), // windows-1252:95
+                    c("HORIZONTAL ELLIPSIS"), // windows-1252:85
+                    c("PER MILLE SIGN"), // windows-1252:89
+                    c("SINGLE LEFT-POINTING ANGLE QUOTATION MARK"), // windows-1252:8B
+                    c("SINGLE RIGHT-POINTING ANGLE QUOTATION MARK"), // windows-1252:9B
+                    c("EURO SIGN"), // windows-1252:80
+                    c("NUMERO SIGN"), // windows-1251:B9
+                    c("TRADE MARK SIGN"), // windows-1252:99
+                ]
+                .join(""),
+            ),
+            // Letters that decode to 0x80 - 0xBF in a Latin-1-like encoding,
+            // and don't usually stand for themselves when adjacent to mojibake.
+            // This excludes spaces, dashes, 'bullet', quotation marks, and ellipses.
+            (
+                "utf8_continuation_strict",
+                vec![
+                    r"\x80-\xbf".to_string(),
+                    c("LATIN CAPITAL LETTER A WITH OGONEK"), // windows-1250:A5
+                    c("LATIN CAPITAL LETTER AE"),            // windows-1257:AF
+                    c("LATIN CAPITAL LETTER L WITH CARON"),  // windows-1250:BC
+                    c("LATIN CAPITAL LETTER L WITH STROKE"), // windows-1250:A3
+                    c("LATIN CAPITAL LETTER O WITH STROKE"), // windows-1257:A8
+                    c("LATIN CAPITAL LETTER R WITH CEDILLA"), // windows-1257:AA
+                    c("LATIN CAPITAL LETTER S WITH ACUTE"),  // windows-1250:8C
+                    c("LATIN CAPITAL LETTER S WITH CARON"),  // windows-1252:8A
+                    c("LATIN CAPITAL LETTER S WITH CEDILLA"), // windows-1250:AA
+                    c("LATIN CAPITAL LETTER T WITH CARON"),  // windows-1250:8D
+                    c("LATIN CAPITAL LETTER Y WITH DIAERESIS"), // windows-1252:9F
+                    c("LATIN CAPITAL LETTER Z WITH ACUTE"),  // windows-1250:8F
+                    c("LATIN CAPITAL LETTER Z WITH CARON"),  // windows-1252:8E
+                    c("LATIN CAPITAL LETTER Z WITH DOT ABOVE"), // windows-1250:AF
+                    c("LATIN CAPITAL LIGATURE OE"),          // windows-1252:8C
+                    c("LATIN SMALL LETTER A WITH OGONEK"),   // windows-1250:B9
+                    c("LATIN SMALL LETTER AE"),              // windows-1257:BF
+                    c("LATIN SMALL LETTER F WITH HOOK"),     // windows-1252:83
+                    c("LATIN SMALL LETTER L WITH CARON"),    // windows-1250:BE
+                    c("LATIN SMALL LETTER L WITH STROKE"),   // windows-1250:B3
+                    c("LATIN SMALL LETTER O WITH STROKE"),   // windows-1257:B8
+                    c("LATIN SMALL LETTER R WITH CEDILLA"),  // windows-1257:BA
+                    c("LATIN SMALL LETTER S WITH ACUTE"),    // windows-1250:9C
+                    c("LATIN SMALL LETTER S WITH CARON"),    // windows-1252:9A
+                    c("LATIN SMALL LETTER S WITH CEDILLA"),  // windows-1250:BA
+                    c("LATIN SMALL LETTER T WITH CARON"),    // windows-1250:9D
+                    c("LATIN SMALL LETTER Z WITH ACUTE"),    // windows-1250:9F
+                    c("LATIN SMALL LETTER Z WITH CARON"),    // windows-1252:9E
+                    c("LATIN SMALL LETTER Z WITH DOT ABOVE"), // windows-1250:BF
+                    c("LATIN SMALL LIGATURE OE"),            // windows-1252:9C
+                    c("MODIFIER LETTER CIRCUMFLEX ACCENT"),  // windows-1252:88
+                    c("CARON"),                              // windows-1250:A1
+                    c("BREVE"),                              // windows-1250:A2
+                    c("OGONEK"),                             // windows-1250:B2
+                    c("SMALL TILDE"),                        // windows-1252:98
+                    c("DOUBLE ACUTE ACCENT"),                // windows-1250:BD
+                    c("GREEK TONOS"),                        // windows-1253:B4
+                    c("GREEK DIALYTIKA TONOS"),              // windows-1253:A1
+                    c("GREEK CAPITAL LETTER ALPHA WITH TONOS"), // windows-1253:A2
+                    c("GREEK CAPITAL LETTER EPSILON WITH TONOS"), // windows-1253:B8
+                    c("GREEK CAPITAL LETTER ETA WITH TONOS"), // windows-1253:B9
+                    c("GREEK CAPITAL LETTER IOTA WITH TONOS"), // windows-1253:BA
+                    c("GREEK CAPITAL LETTER OMICRON WITH TONOS"), // windows-1253:BC
+                    c("GREEK CAPITAL LETTER UPSILON WITH TONOS"), // windows-1253:BE
+                    c("GREEK CAPITAL LETTER OMEGA WITH TONOS"), // windows-1253:BF
+                    c("CYRILLIC CAPITAL LETTER IO"),         // windows-1251:A8
+                    c("CYRILLIC CAPITAL LETTER DJE"),        // windows-1251:80
+                    c("CYRILLIC CAPITAL LETTER GJE"),        // windows-1251:81
+                    c("CYRILLIC CAPITAL LETTER UKRAINIAN IE"), // windows-1251:AA
+                    c("CYRILLIC CAPITAL LETTER DZE"),        // windows-1251:BD
+                    c("CYRILLIC CAPITAL LETTER BYELORUSSIAN-UKRAINIAN I"), // windows-1251:B2
+                    c("CYRILLIC CAPITAL LETTER YI"),         // windows-1251:AF
+                    c("CYRILLIC CAPITAL LETTER JE"),         // windows-1251:A3
+                    c("CYRILLIC CAPITAL LETTER LJE"),        // windows-1251:8A
+                    c("CYRILLIC CAPITAL LETTER NJE"),        // windows-1251:8C
+                    c("CYRILLIC CAPITAL LETTER TSHE"),       // windows-1251:8E
+                    c("CYRILLIC CAPITAL LETTER KJE"),        // windows-1251:8D
+                    c("CYRILLIC CAPITAL LETTER SHORT U"),    // windows-1251:A1
+                    c("CYRILLIC CAPITAL LETTER DZHE"),       // windows-1251:8F
+                    c("CYRILLIC SMALL LETTER IO"),           // windows-1251:B8
+                    c("CYRILLIC SMALL LETTER DJE"),          // windows-1251:90
+                    c("CYRILLIC SMALL LETTER GJE"),          // windows-1251:83
+                    c("CYRILLIC SMALL LETTER UKRAINIAN IE"), // windows-1251:BA
+                    c("CYRILLIC SMALL LETTER DZE"),          // windows-1251:BE
+                    c("CYRILLIC SMALL LETTER BYELORUSSIAN-UKRAINIAN I"), // windows-1251:B3
+                    c("CYRILLIC SMALL LETTER YI"),           // windows-1251:BF
+                    c("CYRILLIC SMALL LETTER JE"),           // windows-1251:BC
+                    c("CYRILLIC SMALL LETTER LJE"),          // windows-1251:9A
+                    c("CYRILLIC SMALL LETTER NJE"),          // windows-1251:9C
+                    c("CYRILLIC SMALL LETTER TSHE"),         // windows-1251:9E
+                    c("CYRILLIC SMALL LETTER KJE"),          // windows-1251:9D
+                    c("CYRILLIC SMALL LETTER SHORT U"),      // windows-1251:A2
+                    c("CYRILLIC SMALL LETTER DZHE"),         // windows-1251:9F
+                    c("CYRILLIC CAPITAL LETTER GHE WITH UPTURN"), // windows-1251:A5
+                    c("CYRILLIC SMALL LETTER GHE WITH UPTURN"), // windows-1251:B4
+                    c("DAGGER"),                             // windows-1252:86
+                    c("DOUBLE DAGGER"),                      // windows-1252:87
+                    c("PER MILLE SIGN"),                     // windows-1252:89
+                    c("SINGLE LEFT-POINTING ANGLE QUOTATION MARK"), // windows-1252:8B
+                    c("SINGLE RIGHT-POINTING ANGLE QUOTATION MARK"), // windows-1252:9B
+                    c("EURO SIGN"),                          // windows-1252:80
+                    c("NUMERO SIGN"),                        // windows-1251:B9
+                    c("TRADE MARK SIGN"),                    // windows-1252:99
+                ]
+                .join(""),
+            ),
+        ]
+        .into_iter()
+        .collect();
+
+        let ours: std::collections::BTreeMap<&str, String> = UTF8_CLUES
+            .iter()
+            .map(|(&name, &class)| (name, class.to_string()))
+            .collect();
+
+        assert_eq!(ours, expected);
+    }
+}
