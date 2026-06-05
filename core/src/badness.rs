@@ -14,24 +14,31 @@ followed immediately by currency symbols.
 use rustc_hash::FxHashMap;
 
 lazy_static! {
+    // `regex` crate's verbose mode strips whitespace, so use regex escapes rather than raw chars
+    static ref WS_PATTERNS: FxHashMap<&'static str, &'static str> = {
+        let mut m = FxHashMap::default();
+        m.insert("sp", "\\u{20}");
+        m.insert("nbsp", "\\u{a0}");
+        m.insert("soft_hyphen", "\\u{ad}");
+        m
+    };
+
     static ref MOJIBAKE_CATEGORIES: FxHashMap<&'static str, &'static str> = {
         let mut m = FxHashMap::default();
-        m.insert("common", "\u{a0}\u{ad}\u{b7}\u{b4}\u{2013}\u{2014}\u{2015}\u{2026}\u{2019}");
-        m.insert("c1", "\u{80}\u{81}\u{82}\u{83}\u{84}\u{85}\u{86}\u{87}\u{88}\u{89}\u{8a}\u{8b}\u{8c}\u{8d}\u{8e}\u{8f}\u{90}\u{91}\u{92}\u{93}\u{94}\u{95}\u{96}\u{97}\u{98}\u{99}\u{9a}\u{9b}\u{9c}\u{9d}\u{9e}\u{9f}");
-        m.insert("bad", "¦¤¨¬¯¶§¸ƒˆˇ˘˛˜†‡‰⌐◊�ªº");
+        m.insert("common", "\\u{a0}\u{ad}\u{b7}\u{b4}\u{2013}\u{2014}\u{2015}\u{2026}\u{2019}");
+        m.insert("c1", "\u{80}-\u{9f}");
+        m.insert("bad", "¦¤¨¬¯¸ƒˆˇ˘˛˜†‡‰⌐◊�ªº");
+        m.insert("law", "¶§");
         m.insert("currency", "¢£¥₧€");
         m.insert("start_punctuation", "¡«¿©΄΅‘‚“„•‹\u{f8ff}");
         m.insert("end_punctuation", "®»˝”›™");
         m.insert("numeric", "²³¹±¼½¾×µ÷⁄∂∆∏∑√∞∩∫≈≠≡≤≥№");
-        m.insert("kaomoji", "Ò-ÖÙ-Üò-öø-üŐ°");
-        m.insert("upper_accented", "À-ÑØÜÝĂĄĆČĎĐĘĚĞİĹĽŁŃŇŒŘŚŞŠŢŤŮŰŸŹŻŽҐ");
-        m.insert("lower_accented", "ßà-ñăąćčďđęěğĺľłœŕśşšťüźżžґﬁﬂ");
+        m.insert("kaomoji", "Ò-ÖÙ-Üò-öø-üŐŌŪŲ°");
+        m.insert("upper_accented", "À-ÑØÜÝĂĀĄĆČĎĐĘĚĒĖĞĢİĪĶĹĽŁĻŃŇŅŒŘŚŞŠŢŤŮŰŸŹŻŽҐ");
+        m.insert("lower_accented", "ßà-ñăąāćčďđęěēėğģįīķĺľłļœŕśşšťüźżžґﬁﬂ");
         m.insert("upper_common", "ÞΑ-ΩΆΈΉΊΌΎΏΪΫЁ-Я");
         m.insert("lower_common", "α-ωάέήίΰа-џ");
         m.insert("box", "│┌┐┘├┤┬┼═-╬▀▄█▌▐░▒▓");
-        m.insert("nbsp", "\u{a0}");
-        m.insert("soft_hyphen", "\u{ad}");
-
         m
     };
 
@@ -42,19 +49,20 @@ lazy_static! {
     Another regular expression, which detects sequences that look more specifically
     like UTF-8 mojibake, appears in chardata.py.
 
-    This is a verbose regular expression, with whitespace added for somewhat more
-    readability. Remember that the only spaces that count as literal spaces in this
-    expression are ones inside character classes (square brackets).
+    This mirrors ftfy's BADNESS_RE verbatim (including its inline comments), as a
+    verbose (`(?x)`) regex, with one change: the `regex` crate's verbose mode strips
+    whitespace even inside character classes, so literal whitespace must be escaped.
     */
     static ref BADNESS_RE:regex::Regex  = regex::Regex::new(
         &format!(
-r#"[{c1}]
+r#"(?x)
+[{c1}]
 |
-[{bad}{lower_accented}{upper_accented}{box}{start_punctuation}{end_punctuation}{currency}{numeric}] [{bad}]
+[{bad}{lower_accented}{upper_accented}{box}{start_punctuation}{end_punctuation}{currency}{numeric}{law}] [{bad}]
 |
 [a-zA-Z] [{lower_common}{upper_common}] [{bad}]
 |
-[{bad}] [{lower_accented}{upper_accented}{box}{start_punctuation}{end_punctuation}{currency}{numeric}]
+[{bad}] [{lower_accented}{upper_accented}{box}{start_punctuation}{end_punctuation}{currency}{numeric}{law}]
 |
 [{lower_accented}{lower_common}{box}{end_punctuation}{currency}{numeric}] [{upper_accented}]
 |
@@ -64,11 +72,11 @@ r#"[{c1}]
 |
 \s [{upper_accented}] [{currency}]
 |
-[{upper_accented}{box}] [{numeric}]
+[{upper_accented}{box}] [{numeric}{law}]
 |
 [{lower_accented}{upper_accented}{box}{currency}{end_punctuation}] [{start_punctuation}] [{numeric}]
 |
-[{lower_accented}{upper_accented}{currency}{numeric}{box}] [{end_punctuation}] [{start_punctuation}]
+[{lower_accented}{upper_accented}{currency}{numeric}{box}{law}] [{end_punctuation}] [{start_punctuation}]
 |
 [{currency}{numeric}{box}] [{start_punctuation}]
 |
@@ -76,23 +84,39 @@ r#"[{c1}]
 |
 [{box}] [{kaomoji}]
 |
-[{lower_accented}{upper_accented}{currency}{numeric}{start_punctuation}{end_punctuation}] [{box}]
+[{lower_accented}{upper_accented}{currency}{numeric}{start_punctuation}{end_punctuation}{law}] [{box}]
 |
 [{box}] [{end_punctuation}]
 |
-[{lower_accented}{upper_accented}] [{end_punctuation}] \w
+[{lower_accented}{upper_accented}] [{start_punctuation}{end_punctuation}] \w
 |
+
+# The ligature œ when not followed by an unaccented Latin letter
 [Œœ][^A-Za-z]
 |
-[ÂÃÎÐ][€Šš¢£Ÿž{nbsp}{soft_hyphen}®©°·»{start_punctuation}{end_punctuation}–—´]
+
+# Degree signs after capital letters
+[{upper_accented}]°
+|
+
+# Common Windows-1252 2-character mojibake that isn't covered by the cases above
+[ÂÃÎÐ][€œŠš¢£Ÿž{nbsp}{soft_hyphen}®©°·»{start_punctuation}{end_punctuation}–—´]
 |
 × [²³]
 |
-[ØÙ] [{common}{currency}{bad}{numeric}{start_punctuation}ŸŠ®°µ»]
-[ØÙ] [{common}{currency}{bad}{numeric}{start_punctuation}ŸŠ®°µ»]
+
+# Windows-1252 mojibake of Arabic words needs to include the 'common' characters.
+# To compensate, we require four characters to be matched.
+  [ØÙ] [{common}{currency}{bad}{numeric}{start_punctuation}ŸŠ®°µ»]
+  [ØÙ] [{common}{currency}{bad}{numeric}{start_punctuation}ŸŠ®°µ»]
 |
+
+# Windows-1252 mojibake that starts 3-character sequences for some South Asian
+# alphabets
 à[²µ¹¼½¾]
 |
+
+# MacRoman mojibake that isn't covered by the cases above
 √[±∂†≠®™´≤≥¥µø]
 |
 ≈[°¢]
@@ -101,25 +125,49 @@ r#"[{c1}]
 |
 ‚[âó][àä°ê]
 |
+
+# Windows-1251 mojibake of characters in the U+2000 range
 вЂ
 |
+
+# Windows-1251 mojibake of Latin-1 characters and/or the Cyrillic alphabet.
+# Because the 2-character sequences involved here may be common, we require
+# seeing a 3-character sequence.
 [ВГРС][{c1}{bad}{start_punctuation}{end_punctuation}{currency}°µ][ВГРС]
 |
-ГўВЂВ.[A-Za-z ]
+
+# A distinctive five-character sequence of Cyrillic letters, which can be
+# Windows-1251 mojibake on top of Latin-1 mojibake of Windows-1252 characters.
+# Require a Latin letter nearby.
+ГўВЂВ.[A-Za-z{sp}]
 |
+
+# Windows-1252 encodings of 'à' and 'á', as well as \xa0 itself
 Ã[{nbsp}¡]
 |
-[a-z]\s?[ÃÂ][\s]
+[a-z]\s?[ÃÂ][{sp}]
 |
-^[ÃÂ][\s]
+^[ÃÂ][{sp}]
 |
-[a-z.,?!{end_punctuation}] Â [ {start_punctuation}{end_punctuation}]
+
+# Cases where Â precedes a character as an encoding of exactly the same
+# character, and the character is common enough
+[a-z.,?!{end_punctuation}] Â [{sp}{start_punctuation}{end_punctuation}]
 |
+
+# Windows-1253 mojibake of characters in the U+2000 range
 β€[™{nbsp}Ά{soft_hyphen}®°]
 |
-[ΒΓΞΟ][{c1}{bad}{start_punctuation}{end_punctuation}{currency}°][ΒΓΞΟ]"#,
+
+# Windows-1253 mojibake of Latin-1 characters and/or the Greek alphabet
+[ΒΓΞΟ][{c1}{bad}{start_punctuation}{end_punctuation}{currency}°][ΒΓΞΟ]
+|
+
+# Windows-1257 mojibake of characters in the U+2000 range
+ā€"#,
         c1 = MOJIBAKE_CATEGORIES["c1"],
         bad = MOJIBAKE_CATEGORIES["bad"],
+        law = MOJIBAKE_CATEGORIES["law"],
         lower_accented = MOJIBAKE_CATEGORIES["lower_accented"],
         upper_accented = MOJIBAKE_CATEGORIES["upper_accented"],
         box = MOJIBAKE_CATEGORIES["box"],
@@ -131,9 +179,10 @@ r#"[{c1}]
         lower_common = MOJIBAKE_CATEGORIES["lower_common"],
         upper_common = MOJIBAKE_CATEGORIES["upper_common"],
         common = MOJIBAKE_CATEGORIES["common"],
-        nbsp = MOJIBAKE_CATEGORIES["nbsp"],
-        soft_hyphen = MOJIBAKE_CATEGORIES["soft_hyphen"],
-    ).replace("\n", "").replace(' ', "")
+        sp = WS_PATTERNS["sp"],
+        nbsp = WS_PATTERNS["nbsp"],
+        soft_hyphen = WS_PATTERNS["soft_hyphen"],
+    )
     ).unwrap();
 }
 
@@ -438,5 +487,422 @@ mod tests {
             badness("This sentence has consecutive bad characters \u{80}\u{80}\u{80}\u{80}"),
             4
         );
+    }
+
+    // ----------------------------------------------------------------------
+    // Regression tests for Finding #5: align is_bad with ftfy.
+    //
+    // The expected verdicts below were taken directly from ftfy 6.3.1's
+    // `ftfy.badness.is_bad`. Each case previously diverged between the Rust
+    // port and ftfy.
+    // ----------------------------------------------------------------------
+
+    // Previously FALSE NEGATIVES: ftfy returns True, Rust returned False.
+
+    #[test]
+    fn test_is_bad_ftfy_five_char_cyrillic_with_latin() {
+        // `ГўВЂВ.[A-Za-z ]` — literal space in the char class must be preserved.
+        assert!(is_bad("ГўВЂВX "));
+    }
+
+    #[test]
+    fn test_is_bad_ftfy_a_circumflex_space() {
+        // `^[ÃÂ][ ]` / `[a-z]\s?[ÃÂ][ ]` — literal space class, not `[\s]`.
+        assert!(is_bad("aÂ "));
+    }
+
+    #[test]
+    fn test_is_bad_ftfy_upper_accented_degree() {
+        // `[{upper_accented}]°` fragment, previously missing.
+        assert!(is_bad("À°"));
+    }
+
+    #[test]
+    fn test_is_bad_ftfy_windows1257() {
+        // `ā€` fragment (windows-1257 mojibake), previously missing.
+        assert!(is_bad("ā€"));
+    }
+
+    #[test]
+    fn test_is_bad_ftfy_a_grave_guillemet() {
+        // `[{upper_accented}][{start_punctuation}{end_punctuation}]\w` — this
+        // fragment was previously missing `start_punctuation` (`«`).
+        assert!(is_bad("À«a"));
+    }
+
+    // Previously FALSE POSITIVES: ftfy returns False, Rust returned True.
+    // These were caused by `law` (¶ §) being folded into `bad`.
+
+    #[test]
+    fn test_is_bad_ftfy_no_law_section_after_lower_common() {
+        assert!(!is_bad("Aα§"));
+    }
+
+    #[test]
+    fn test_is_bad_ftfy_no_law_pilcrow_after_lower_common() {
+        assert!(!is_bad("Aα¶"));
+    }
+
+    #[test]
+    fn test_is_bad_ftfy_no_law_section_lower() {
+        assert!(!is_bad("aα§"));
+    }
+
+    #[test]
+    fn test_is_bad_ftfy_a_tilde_tab_not_bad() {
+        // `[a-z]\s?[ÃÂ][ ]` uses a literal space, so a trailing tab must NOT match.
+        assert!(!is_bad("aÃ\t"));
+    }
+
+    // Genuine mojibake must still be detected.
+    #[test]
+    fn test_is_bad_genuine_mojibake_still_detected() {
+        assert!(is_bad("Ã©"));
+        assert!(is_bad("â€™"));
+        assert!(is_bad("donâ€™t"));
+        assert!(is_bad("â€œquoteâ€"));
+        assert!(is_bad("Â£100"));
+    }
+
+    // `law` characters in legitimate legalese contexts are not bad on their own.
+    #[test]
+    fn test_is_bad_law_standalone_not_bad() {
+        assert!(!is_bad("§"));
+        assert!(!is_bad("¶"));
+        assert!(!is_bad("see § 12"));
+    }
+
+    /// Look up a character by its Unicode name (how ftfy spells its categories).
+    fn get_char(name: &str) -> char {
+        unicode_names2::character(name).unwrap_or_else(|| panic!("unknown Unicode name {name:?}"))
+    }
+    fn c(name: &str) -> String {
+        get_char(name).into()
+    }
+    fn s(name: &str) -> String {
+        let c = get_char(name);
+        assert!(c.is_whitespace());
+        format!("\\u{{{:x}}}", c as u32)
+    }
+    /// A character-class fragment for the inclusive range between two named chars.
+    fn range(lo: &str, hi: &str) -> String {
+        format!("{}-{}", get_char(lo), get_char(hi))
+    }
+
+    /// Verify our MOJIBAKE_CATEGORIES matches ftfy's exactly.
+    /// Use unicode_names2 to mirror python's `\N{...}` escape.
+    /// The only difference is whitespace characters, which are stripped by rust regex's verbose mode
+    #[test]
+    fn test_mojibake_categories_match_ftfy() {
+        let expected: std::collections::BTreeMap<&str, String> = [
+            // Characters that appear in many different contexts. Sequences that
+            // contain them are not inherently mojibake.
+            (
+                "common",
+                vec![
+                    s("NO-BREAK SPACE"),
+                    c("SOFT HYPHEN"),
+                    c("MIDDLE DOT"),
+                    c("ACUTE ACCENT"),
+                    c("EN DASH"),
+                    c("EM DASH"),
+                    c("HORIZONTAL BAR"),
+                    c("HORIZONTAL ELLIPSIS"),
+                    c("RIGHT SINGLE QUOTATION MARK"),
+                ]
+                .join(""),
+            ),
+            // the C1 control character range, which have no uses outside of mojibake anymore
+            ("c1", "\u{80}-\u{9f}".to_string()),
+            // Characters that are nearly 100% used in mojibake
+            (
+                "bad",
+                vec![
+                    c("BROKEN BAR"),
+                    c("CURRENCY SIGN"),
+                    c("DIAERESIS"),
+                    c("NOT SIGN"),
+                    c("MACRON"),
+                    c("CEDILLA"),
+                    c("LATIN SMALL LETTER F WITH HOOK"),
+                    c("MODIFIER LETTER CIRCUMFLEX ACCENT"), // it's not a modifier
+                    c("CARON"),
+                    c("BREVE"),
+                    c("OGONEK"),
+                    c("SMALL TILDE"),
+                    c("DAGGER"),
+                    c("DOUBLE DAGGER"),
+                    c("PER MILLE SIGN"),
+                    c("REVERSED NOT SIGN"),
+                    c("LOZENGE"),
+                    c("REPLACEMENT CHARACTER"),
+                    // Theoretically these would appear in 'numeric' contexts, but when they
+                    // co-occur with other mojibake characters, it's not really ambiguous
+                    c("FEMININE ORDINAL INDICATOR"),
+                    c("MASCULINE ORDINAL INDICATOR"),
+                ]
+                .join(""),
+            ),
+            // Characters used in legalese
+            (
+                "law",
+                vec![
+                    // comment to prevent fmt from collapsing this section
+                    c("PILCROW SIGN"),
+                    c("SECTION SIGN"),
+                ]
+                .join(""),
+            ),
+            (
+                "currency",
+                vec![
+                    c("CENT SIGN"),
+                    c("POUND SIGN"),
+                    c("YEN SIGN"),
+                    c("PESETA SIGN"),
+                    c("EURO SIGN"),
+                ]
+                .join(""),
+            ),
+            (
+                "start_punctuation",
+                vec![
+                    c("INVERTED EXCLAMATION MARK"),
+                    c("LEFT-POINTING DOUBLE ANGLE QUOTATION MARK"),
+                    c("INVERTED QUESTION MARK"),
+                    c("COPYRIGHT SIGN"),
+                    c("GREEK TONOS"),
+                    c("GREEK DIALYTIKA TONOS"),
+                    c("LEFT SINGLE QUOTATION MARK"),
+                    c("SINGLE LOW-9 QUOTATION MARK"),
+                    c("LEFT DOUBLE QUOTATION MARK"),
+                    c("DOUBLE LOW-9 QUOTATION MARK"),
+                    c("BULLET"),
+                    c("SINGLE LEFT-POINTING ANGLE QUOTATION MARK"),
+                    // OS-specific symbol, usually the Apple logo
+                    "\u{f8ff}".to_string(),
+                ]
+                .join(""),
+            ),
+            (
+                "end_punctuation",
+                vec![
+                    c("REGISTERED SIGN"),
+                    c("RIGHT-POINTING DOUBLE ANGLE QUOTATION MARK"),
+                    c("DOUBLE ACUTE ACCENT"),
+                    c("RIGHT DOUBLE QUOTATION MARK"),
+                    c("SINGLE RIGHT-POINTING ANGLE QUOTATION MARK"),
+                    c("TRADE MARK SIGN"),
+                ]
+                .join(""),
+            ),
+            (
+                "numeric",
+                vec![
+                    c("SUPERSCRIPT TWO"),
+                    c("SUPERSCRIPT THREE"),
+                    c("SUPERSCRIPT ONE"),
+                    c("PLUS-MINUS SIGN"),
+                    c("VULGAR FRACTION ONE QUARTER"),
+                    c("VULGAR FRACTION ONE HALF"),
+                    c("VULGAR FRACTION THREE QUARTERS"),
+                    c("MULTIPLICATION SIGN"),
+                    c("MICRO SIGN"),
+                    c("DIVISION SIGN"),
+                    c("FRACTION SLASH"),
+                    c("PARTIAL DIFFERENTIAL"),
+                    c("INCREMENT"),
+                    c("N-ARY PRODUCT"),
+                    c("N-ARY SUMMATION"),
+                    c("SQUARE ROOT"),
+                    c("INFINITY"),
+                    c("INTERSECTION"),
+                    c("INTEGRAL"),
+                    c("ALMOST EQUAL TO"),
+                    c("NOT EQUAL TO"),
+                    c("IDENTICAL TO"),
+                    c("LESS-THAN OR EQUAL TO"),
+                    c("GREATER-THAN OR EQUAL TO"),
+                    c("NUMERO SIGN"),
+                ]
+                .join(""),
+            ),
+            // Letters that might be used to make emoticon faces (kaomoji), and
+            // therefore might need to appear in more improbable-looking contexts.
+            //
+            // These are concatenated character ranges for use in a regex. I know
+            // they look like faces themselves. I think expressing the ranges like
+            // this helps to illustrate why we need to be careful with these
+            // characters.
+            (
+                "kaomoji",
+                vec![
+                    "Ò-Ö".to_string(),
+                    "Ù-Ü".to_string(),
+                    "ò-ö".to_string(),
+                    "ø-ü".to_string(),
+                    c("LATIN CAPITAL LETTER O WITH DOUBLE ACUTE"),
+                    c("LATIN CAPITAL LETTER O WITH MACRON"),
+                    c("LATIN CAPITAL LETTER U WITH MACRON"),
+                    c("LATIN CAPITAL LETTER U WITH OGONEK"),
+                    c("DEGREE SIGN"),
+                ]
+                .join(""),
+            ),
+            (
+                "upper_accented",
+                vec![
+                    range(
+                        "LATIN CAPITAL LETTER A WITH GRAVE",
+                        "LATIN CAPITAL LETTER N WITH TILDE",
+                    ),
+                    // skip capital O's and U's that could be used in kaomoji, but
+                    // include Ø because it's very common in Arabic mojibake:
+                    c("LATIN CAPITAL LETTER O WITH STROKE"),
+                    c("LATIN CAPITAL LETTER U WITH DIAERESIS"),
+                    c("LATIN CAPITAL LETTER Y WITH ACUTE"),
+                    c("LATIN CAPITAL LETTER A WITH BREVE"),
+                    c("LATIN CAPITAL LETTER A WITH MACRON"),
+                    c("LATIN CAPITAL LETTER A WITH OGONEK"),
+                    c("LATIN CAPITAL LETTER C WITH ACUTE"),
+                    c("LATIN CAPITAL LETTER C WITH CARON"),
+                    c("LATIN CAPITAL LETTER D WITH CARON"),
+                    c("LATIN CAPITAL LETTER D WITH STROKE"),
+                    c("LATIN CAPITAL LETTER E WITH OGONEK"),
+                    c("LATIN CAPITAL LETTER E WITH CARON"),
+                    c("LATIN CAPITAL LETTER E WITH MACRON"),
+                    c("LATIN CAPITAL LETTER E WITH DOT ABOVE"),
+                    c("LATIN CAPITAL LETTER G WITH BREVE"),
+                    c("LATIN CAPITAL LETTER G WITH CEDILLA"),
+                    c("LATIN CAPITAL LETTER I WITH DOT ABOVE"),
+                    c("LATIN CAPITAL LETTER I WITH MACRON"),
+                    c("LATIN CAPITAL LETTER K WITH CEDILLA"),
+                    c("LATIN CAPITAL LETTER L WITH ACUTE"),
+                    c("LATIN CAPITAL LETTER L WITH CARON"),
+                    c("LATIN CAPITAL LETTER L WITH STROKE"),
+                    c("LATIN CAPITAL LETTER L WITH CEDILLA"),
+                    c("LATIN CAPITAL LETTER N WITH ACUTE"),
+                    c("LATIN CAPITAL LETTER N WITH CARON"),
+                    c("LATIN CAPITAL LETTER N WITH CEDILLA"),
+                    c("LATIN CAPITAL LIGATURE OE"),
+                    c("LATIN CAPITAL LETTER R WITH CARON"),
+                    c("LATIN CAPITAL LETTER S WITH ACUTE"),
+                    c("LATIN CAPITAL LETTER S WITH CEDILLA"),
+                    c("LATIN CAPITAL LETTER S WITH CARON"),
+                    c("LATIN CAPITAL LETTER T WITH CEDILLA"),
+                    c("LATIN CAPITAL LETTER T WITH CARON"),
+                    c("LATIN CAPITAL LETTER U WITH RING ABOVE"),
+                    c("LATIN CAPITAL LETTER U WITH DOUBLE ACUTE"),
+                    c("LATIN CAPITAL LETTER Y WITH DIAERESIS"),
+                    c("LATIN CAPITAL LETTER Z WITH ACUTE"),
+                    c("LATIN CAPITAL LETTER Z WITH DOT ABOVE"),
+                    c("LATIN CAPITAL LETTER Z WITH CARON"),
+                    c("CYRILLIC CAPITAL LETTER GHE WITH UPTURN"),
+                ]
+                .join(""),
+            ),
+            (
+                "lower_accented",
+                vec![
+                    c("LATIN SMALL LETTER SHARP S"),
+                    range(
+                        "LATIN SMALL LETTER A WITH GRAVE",
+                        "LATIN SMALL LETTER N WITH TILDE",
+                    ),
+                    // skip o's and u's that could be used in kaomoji
+                    c("LATIN SMALL LETTER A WITH BREVE"),
+                    c("LATIN SMALL LETTER A WITH OGONEK"),
+                    c("LATIN SMALL LETTER A WITH MACRON"),
+                    c("LATIN SMALL LETTER C WITH ACUTE"),
+                    c("LATIN SMALL LETTER C WITH CARON"),
+                    c("LATIN SMALL LETTER D WITH CARON"),
+                    c("LATIN SMALL LETTER D WITH STROKE"),
+                    c("LATIN SMALL LETTER E WITH OGONEK"),
+                    c("LATIN SMALL LETTER E WITH CARON"),
+                    c("LATIN SMALL LETTER E WITH MACRON"),
+                    c("LATIN SMALL LETTER E WITH DOT ABOVE"),
+                    c("LATIN SMALL LETTER G WITH BREVE"),
+                    c("LATIN SMALL LETTER G WITH CEDILLA"),
+                    c("LATIN SMALL LETTER I WITH OGONEK"),
+                    c("LATIN SMALL LETTER I WITH MACRON"),
+                    c("LATIN SMALL LETTER K WITH CEDILLA"),
+                    c("LATIN SMALL LETTER L WITH ACUTE"),
+                    c("LATIN SMALL LETTER L WITH CARON"),
+                    c("LATIN SMALL LETTER L WITH STROKE"),
+                    c("LATIN SMALL LETTER L WITH CEDILLA"),
+                    c("LATIN SMALL LIGATURE OE"),
+                    c("LATIN SMALL LETTER R WITH ACUTE"),
+                    c("LATIN SMALL LETTER S WITH ACUTE"),
+                    c("LATIN SMALL LETTER S WITH CEDILLA"),
+                    c("LATIN SMALL LETTER S WITH CARON"),
+                    c("LATIN SMALL LETTER T WITH CARON"),
+                    c("LATIN SMALL LETTER U WITH DIAERESIS"),
+                    c("LATIN SMALL LETTER Z WITH ACUTE"),
+                    c("LATIN SMALL LETTER Z WITH DOT ABOVE"),
+                    c("LATIN SMALL LETTER Z WITH CARON"),
+                    c("CYRILLIC SMALL LETTER GHE WITH UPTURN"),
+                    c("LATIN SMALL LIGATURE FI"),
+                    c("LATIN SMALL LIGATURE FL"),
+                ]
+                .join(""),
+            ),
+            (
+                "upper_common",
+                vec![
+                    c("LATIN CAPITAL LETTER THORN"),
+                    range("GREEK CAPITAL LETTER ALPHA", "GREEK CAPITAL LETTER OMEGA"),
+                    // not included under 'accented' because these can commonly
+                    // occur at ends of words, in positions where they'd be detected
+                    // as mojibake
+                    c("GREEK CAPITAL LETTER ALPHA WITH TONOS"),
+                    c("GREEK CAPITAL LETTER EPSILON WITH TONOS"),
+                    c("GREEK CAPITAL LETTER ETA WITH TONOS"),
+                    c("GREEK CAPITAL LETTER IOTA WITH TONOS"),
+                    c("GREEK CAPITAL LETTER OMICRON WITH TONOS"),
+                    c("GREEK CAPITAL LETTER UPSILON WITH TONOS"),
+                    c("GREEK CAPITAL LETTER OMEGA WITH TONOS"),
+                    c("GREEK CAPITAL LETTER IOTA WITH DIALYTIKA"),
+                    c("GREEK CAPITAL LETTER UPSILON WITH DIALYTIKA"),
+                    range("CYRILLIC CAPITAL LETTER IO", "CYRILLIC CAPITAL LETTER YA"),
+                ]
+                .join(""),
+            ),
+            (
+                "lower_common",
+                vec![
+                    // lowercase thorn does not appear in mojibake
+                    range("GREEK SMALL LETTER ALPHA", "GREEK SMALL LETTER OMEGA"),
+                    c("GREEK SMALL LETTER ALPHA WITH TONOS"),
+                    c("GREEK SMALL LETTER EPSILON WITH TONOS"),
+                    c("GREEK SMALL LETTER ETA WITH TONOS"),
+                    c("GREEK SMALL LETTER IOTA WITH TONOS"),
+                    c("GREEK SMALL LETTER UPSILON WITH DIALYTIKA AND TONOS"),
+                    range("CYRILLIC SMALL LETTER A", "CYRILLIC SMALL LETTER DZHE"),
+                ]
+                .join(""),
+            ),
+            (
+                "box",
+                vec![
+                    // omit the single horizontal line, might be used in kaomoji
+                    "│┌┐┘├┤┬┼".to_string(),
+                    range(
+                        "BOX DRAWINGS DOUBLE HORIZONTAL",
+                        "BOX DRAWINGS DOUBLE VERTICAL AND HORIZONTAL",
+                    ),
+                    "▀▄█▌▐░▒▓".to_string(),
+                ]
+                .join(""),
+            ),
+        ]
+        .into_iter()
+        .collect();
+
+        let ours: std::collections::BTreeMap<&str, String> = MOJIBAKE_CATEGORIES
+            .iter()
+            .map(|(&name, &class)| (name, class.to_string()))
+            .collect();
+
+        assert_eq!(ours, expected);
     }
 }
