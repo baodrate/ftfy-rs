@@ -2041,4 +2041,48 @@ mod tests {
         assert_eq!(unescape_html("&#xffff;"), "");
         assert_eq!(unescape_html("&#xffffffff;"), "\u{fffd}");
     }
+
+    /// Baltic mojibake whose recovery relies on the windows-1257/Baltic
+    /// letters now present in the UTF8 detector clue sets. ftfy 6.3.1 fixes
+    /// `Å½vaigÅ¾dÄ—` to `Žvaigždė`.
+    #[test]
+    fn test_baltic_mojibake_via_detector_clues() {
+        let original = "Å½vaigÅ¾dÄ—";
+        let expected = "Žvaigždė";
+        let result = fix_text(original, None);
+        assert_eq!(result, expected);
+    }
+
+    /// Baltic mojibake that can only be repaired by encoding back through
+    /// sloppy-windows-1257 (newly added to CHARMAP_ENCODINGS). ftfy fixes
+    /// `ÅŖdensÅ¾Ä«das` to `Ūdensžīdas` via sloppy-windows-1257.
+    #[test]
+    fn test_baltic_mojibake_requires_windows_1257() {
+        let original = "ÅŖdensÅ¾Ä«das";
+        let expected = "Ūdensžīdas";
+        let result = fix_text(original, None);
+        assert_eq!(result, expected);
+    }
+
+    /// Cyrillic mojibake recovered via sloppy-windows-1251, which must be
+    /// tried before sloppy-windows-1250 (the order ftfy uses). ftfy fixes
+    /// `РџСЂРёРІРµС‚` to `Привет`.
+    #[test]
+    fn test_cyrillic_mojibake_windows_1251_before_1250() {
+        let original = "РџСЂРёРІРµС‚";
+        let expected = "Привет";
+        let result = fix_text(original, None);
+        assert_eq!(result, expected);
+    }
+
+    /// Regression for the stray bullet (U+2022) wrongly present in the
+    /// strict UTF8 continuation set: a mojibake sequence preceded by a
+    /// literal bullet must still be fixed. ftfy fixes `• cafÃ©` to `• café`.
+    #[test]
+    fn test_bullet_preceded_mojibake_is_fixed() {
+        let original = "• cafÃ©";
+        let expected = "• café";
+        let result = fix_text(original, None);
+        assert_eq!(result, expected);
+    }
 }
