@@ -1,0 +1,3 @@
+[submodule "third-party/python-ftfy"]
+	path = third-party/python-ftfy
+	url = https://github.com/rspeer/python-ftfy
