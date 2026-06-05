@@ -502,6 +502,17 @@ mod tests {
         assert_eq!(unescape_html("non_html_string"), "non_html_string");
     }
 
+    /// Regression: an uppercased entity alias for a lower-case name must not
+    /// clobber a real HTML5 entity. e.g.:
+    ///     '&dd;' -> 'ⅆ' (U+2146): Double-Struck Italic Small D
+    ///     '&DD;' -> 'ⅅ' (U+2145): Double-Struck Italic Capital D
+    /// but 'ⅆ'.to_uppercase() != 'ⅅ', so take care to not clobber the real entity
+    #[test]
+    fn test_html_entity_uppercase_alias_clobber() {
+        assert_eq!(unescape_html("x &dd; y"), "x \u{2146} y");
+        assert_eq!(unescape_html("x &DD; y"), "x \u{2145} y");
+    }
+
     #[test]
     fn test_remove_escapes_color_text() {
         assert_eq!(
