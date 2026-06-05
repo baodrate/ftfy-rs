@@ -280,13 +280,18 @@ pub fn fix_text(text: &str, config: Option<&TextFixerConfig>) -> String {
         })
         .map(|(segment, _rest)| segment);
 
-    // Fix each segment. The `<` check disables HTML unescaping for this and every
-    // later segment (matching ftfy); `scan` threads that state left-to-right.
+    // Fix each segment. In auto mode a `<` disables unescaping for this and
+    // every later segment (matching ftfy); `seen_lt` threads that sticky state.
+    let user_unescape = config.unescape_html;
     segments
-        .scan(config, |config, segment| {
-            if config.unescape_html.is_none() && segment.contains("<") {
-                config.unescape_html = Some(false);
-            }
+        .scan((config, false), |(config, seen_lt), segment| {
+            config.unescape_html = Some(match user_unescape {
+                Some(flag) => flag,
+                None => {
+                    *seen_lt = *seen_lt || segment.contains('<');
+                    !*seen_lt
+                }
+            });
             Some(fix_and_explain(segment, false, Some(config)).text)
         })
         .collect()
@@ -345,25 +350,32 @@ pub fn fix_and_explain(
     :func:`apply_plan`, or if config.explain is False, it will be None.
     */
     let mut text = text.to_string();
-    let mut config = match config {
+    let config = match config {
         Some(config) => config.clone(),
         None => TextFixerConfig::default(),
     };
 
     // Match ftfy: in auto mode, a literal `<` means probable real HTML, so
     // leave its entities alone.
-    if config.unescape_html.is_none() && text.contains('<') {
-        config.unescape_html = Some(false);
-    }
+    let do_unescape_html = match config.unescape_html {
+        Some(flag) => flag,
+        None => !text.contains('<'),
+    };
 
     let mut steps: Option<Vec<ExplanationStep>> = if explain { Some(Vec::new()) } else { None };
 
     for _ in 0..MAX_ATTEMPTS {
-        // auto and `Some(true)` unescape; `Some(false)` skips (ftfy: "auto"/True are truthy).
-        let temp = if config.unescape_html == Some(false) {
-            Cow::Borrowed(text.as_str())
+        let temp: Cow<str> = if do_unescape_html {
+            apply_step(
+                unescape_html,
+                &text,
+                ExplanationStep {
+                    transformation: String::from("unescape_html"),
+                },
+                &mut steps,
+            )
         } else {
-            unescape_html(&text)
+            Cow::Borrowed(text.as_str())
         };
 
         let temp = if config.fix_encoding {
@@ -2086,6 +2098,25 @@ mod ftfy_test_entities {
         assert_eq!(
             fix_text_segment("this is just informal english &not html", None),
             "this is just informal english &not html"
+        );
+    }
+
+    // When unescaping changes the text, it's recorded as an `unescape_html`
+    // step in the explanation plan.
+    #[test]
+    fn test_unescape_html_records_explanation_step() {
+        let explained = fix_and_explain("caf&eacute;", true, None);
+        assert_eq!(explained.text, "café");
+        let steps: Vec<&str> = explained
+            .steps
+            .as_deref()
+            .unwrap()
+            .iter()
+            .map(|s| s.transformation.as_str())
+            .collect();
+        assert!(
+            steps.contains(&"unescape_html"),
+            "expected an `unescape_html` step, got {steps:?}"
         );
     }
 }
