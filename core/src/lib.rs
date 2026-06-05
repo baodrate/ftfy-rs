@@ -586,7 +586,13 @@ fn _fix_encoding_one_step_and_explain(
 
                 // Check encoded_bytes for sequences that would be UTF-8,
                 // except they have b' ' where b'\xa0' would belong.
-                if config.restore_byte_a0 && ALTERED_UTF8_RE.is_match(&encoded_bytes) {
+                //
+                // Don't do this in the macroman encoding, where it would match
+                // an en dash followed by a space, leading to false positives.
+                if config.restore_byte_a0
+                    && encoding.name() != "macroman"
+                    && ALTERED_UTF8_RE.is_match(&encoded_bytes)
+                {
                     let replaced_bytes = restore_byte_a0(&encoded_bytes);
 
                     if replaced_bytes != encoded_bytes {
@@ -738,6 +744,19 @@ mod tests {
     /// equivalent is `fix_and_explain` without keeping the plan.
     fn fix_text_segment(text: &str, config: Option<&TextFixerConfig>) -> String {
         fix_and_explain(text, false, config).text
+    }
+
+    /// Regression: `restore_byte_a0` must skip the macroman candidate encoding.
+    ///
+    /// In macroman an en-dash encodes to a single `0xD0`, so "en-dash space"
+    /// becomes `\xd0\x20`, which `ALTERED_UTF8_RE` matches. Without the guard
+    /// `restore_byte_a0` rewrites the space to `\xa0` and the result decodes as
+    /// Cyrillic Р, corrupting correct text. ftfy leaves this input unchanged.
+    #[test]
+    fn test_restore_byte_a0_skipped_for_macroman() {
+        let original = "caf√© – wei√ü";
+        let result = fix_text(original, None);
+        assert_eq!(result, original);
     }
 
     #[test]
