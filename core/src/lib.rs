@@ -2085,4 +2085,13 @@ mod tests {
         let result = fix_text(original, None);
         assert_eq!(result, expected);
     }
+
+    // Regression: an uppercase entity alias for a lower-case name must not
+    // clobber a real HTML5 entity. `&dd;` decodes to ⅆ (U+2146); its uppercase
+    // alias `&DD;` previously overwrote the real `&DD;` entity (ⅅ, U+2145).
+    #[test]
+    fn test_html_entity_uppercase_alias_does_not_clobber_real_entity() {
+        let result = fix_text("x &DD; y", None);
+        assert_eq!(result, "x \u{2145} y"); // ⅅ, the real &DD; entity
+    }
 }
