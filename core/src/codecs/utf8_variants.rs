@@ -104,14 +104,16 @@ fn buffer_decode_step(slice: &[u8]) -> Result<(String, usize), Box<dyn std::erro
 
     This method figures out which step is appropriate, and does it.
     */
+
+    // Find the next byte position that indicates a variant of UTF-8.
     if let Some(captures) = SPECIAL_BYTES_RE.captures(slice) {
         let matched = captures.get(0).unwrap();
 
         let cutoff = matched.start();
 
         if cutoff > 0 {
-            let ascii_slice = &slice[..cutoff];
-            return Ok((str::from_utf8(ascii_slice)?.to_string(), cutoff));
+            let utf8_prefix = &slice[..cutoff];
+            return Ok((str::from_utf8(utf8_prefix)?.to_string(), cutoff));
         }
 
         // Some byte sequence that we intend to handle specially matches
@@ -119,16 +121,18 @@ fn buffer_decode_step(slice: &[u8]) -> Result<(String, usize), Box<dyn std::erro
         if slice.starts_with(&[0xc0]) {
             if slice.len() > 1 {
                 // Decode the two-byte sequence 0xc0 0x80.
-                return Ok(("\u{0000}".to_string(), 2));
+                Ok(("\u{0000}".to_string(), 2))
             } else {
-                return Ok(("".to_string(), 0));
+                // We hit the end of the stream.
+                // [0xc0] is never valid UTF-8, so this always errors - matching ftfy's decoder
+                Ok((str::from_utf8(slice)?.to_string(), slice.len()))
             }
         } else {
-            return buffer_decode_surrogates(slice);
+            // Decode a possible six-byte sequence starting with 0xed.
+            buffer_decode_surrogates(slice)
         }
     } else {
-        // Decode a possible six-byte sequence starting with 0xed.
-        return Ok((str::from_utf8(slice)?.to_string(), slice.len()));
+        Ok((str::from_utf8(slice)?.to_string(), slice.len()))
     }
 }
 
@@ -351,5 +355,27 @@ mod ftfy_test_bytes {
         // matter where the break between those pieces is, we get the same result.
         // TODO: enable test after implementing incremental decoder
         unimplemented!()
+    }
+
+    // A lone trailing 0xc0 must error (matching ftfy's utf-8-variants codec),
+    // not be silently dropped as it was before.
+    #[test]
+    fn test_decode_ascii_then_trailing_c0_errors() {
+        // ftfy: b"A\xc0".decode("utf-8-variants") -> UnicodeDecodeError
+        let input = [0x41, 0xC0];
+        assert!(
+            variant_decode(&input).is_err(),
+            "lone trailing 0xc0 after ASCII must error, not drop the byte"
+        );
+    }
+
+    #[test]
+    fn test_decode_lone_trailing_c0_errors() {
+        // ftfy: b"\xc0".decode("utf-8-variants") -> UnicodeDecodeError
+        let input = [0xC0];
+        assert!(
+            variant_decode(&input).is_err(),
+            "lone 0xc0 must error, not decode to empty string"
+        );
     }
 }
