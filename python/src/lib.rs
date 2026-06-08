@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::panic;
 
 use ::plsfix::{ExplainedText, ExplanationStep, Normalization, TextFixerConfig};
@@ -30,7 +31,7 @@ pub struct PyTextFixerConfig {
     pub fix_surrogates: bool,
     pub remove_control_chars: bool,
     pub normalization: Option<Normalization>,
-    pub max_decode_length: i32,
+    pub max_decode_length: NonZeroUsize,
     pub explain: bool,
 }
 
@@ -54,7 +55,7 @@ impl PyTextFixerConfig {
         fix_surrogates=true,
         remove_control_chars=true,
         normalization="NFC".to_string(),
-        max_decode_length=1_000_000,
+        max_decode_length=NonZeroUsize::new(1_000_000).unwrap(),
         explain=true,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -73,7 +74,7 @@ impl PyTextFixerConfig {
         fix_surrogates: bool,
         remove_control_chars: bool,
         normalization: Option<String>,
-        max_decode_length: i32,
+        max_decode_length: NonZeroUsize,
         explain: bool,
     ) -> PyResult<Self> {
         // "auto" / not-passed -> None; explicit True/False -> Some(bool).

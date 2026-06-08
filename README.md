@@ -98,4 +98,5 @@ plsfix aims to match ftfy behavior, but a few things differ:
 - **Explanation shape.** `ExplanationStep` is a flat `transformation` string rather than ftfy's `(action, parameter)` tuple, so explanations can't be replayed via `apply_plan`.
 - **No surrogate pass.** `fix_surrogates` is a no-op kept for ftfy compatibility — Rust strings can't hold lone surrogates, and surrogate recovery already happens during encoding repair. `remove_control_chars` strips U+FEFF.
 - **Bounded loops.** Fixed-point loops cap at 16 passes (ftfy loops unbounded); real text converges well before this.
+- **Non-zero `max_decode_length`.** The cap is a `NonZeroUsize` rather than ftfy's `int`, so a zero or negative value is rejected when constructing `TextFixerConfig` (raising `ValueError`/`OverflowError`) — where ftfy accepts it and in fact hangs on `0`.
 - **Baltic gap.** `windows-1257` is not yet a candidate codec, so some Baltic-language mojibake that ftfy fixes is left unchanged.
