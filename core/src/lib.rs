@@ -728,7 +728,17 @@ fn _fix_encoding_one_step_and_explain(
 #[cfg(test)]
 mod tests {
     use super::fix_text;
+    use super::{
+        fix_and_explain, fix_encoding_and_explain, possible_encoding, unescape_html, CodecType,
+        Normalization, TextFixerConfig,
+    };
     use pretty_assertions::assert_eq;
+
+    /// ftfy's `fix_text_segment`: fix the text as a single segment. plsfix's
+    /// equivalent is `fix_and_explain` without keeping the plan.
+    fn fix_text_segment(text: &str, config: Option<&TextFixerConfig>) -> String {
+        fix_and_explain(text, false, config).text
+    }
 
     #[test]
     fn test_messy_language_names_czech() {
@@ -1879,5 +1889,137 @@ mod tests {
                 assert_eq!(joined, text, "segments don't tile {text:?} max={max}");
             }
         }
+    }
+
+    // --- Ported from ftfy's tests/test_characters.py ---
+
+    #[test]
+    fn test_possible_encoding() {
+        // Every byte value is representable in Latin-1.
+        for codept in 0u32..256 {
+            let ch = char::from_u32(codept).unwrap();
+            assert!(possible_encoding(&ch.to_string(), CodecType::Latin1));
+        }
+    }
+
+    #[test]
+    fn test_byte_order_mark() {
+        // ftfy: fix_encoding("ï»¿") == "﻿". plsfix exposes the encoding
+        // stage as fix_encoding_and_explain.
+        assert_eq!(
+            fix_encoding_and_explain("ï»¿", false, None).text,
+            "\u{feff}"
+        );
+    }
+
+    #[test]
+    fn test_ohio_flag() {
+        // The "Flag of Ohio" emoji — tag characters that no emoji database
+        // believes was implemented — must pass through fix_text unchanged.
+        let text =
+            "#superman #ohio 🏴\u{e0075}\u{e0073}\u{e006f}\u{e0068}\u{e007f} #cleveland #usa 🇺🇸";
+        assert_eq!(fix_text(text, None), text);
+    }
+
+    #[test]
+    fn test_color_escapes() {
+        // ftfy returns a plan of [("apply", "remove_terminal_escapes"),
+        // ("apply", "remove_control_chars")]. plsfix records the transformation
+        // labels in the same order.
+        let explained = fix_and_explain("\u{1}\u{1b}[36;44mfoo", true, None);
+        assert_eq!(explained.text, "foo");
+        let steps: Vec<&str> = explained
+            .steps
+            .as_deref()
+            .unwrap()
+            .iter()
+            .map(|s| s.transformation.as_str())
+            .collect();
+        assert_eq!(steps, ["remove_terminal_escapes", "remove_control_chars"]);
+    }
+
+    // Note: ftfy's test_surrogates exercises `fix_surrogates`, which plsfix
+    // does not implement as a separate fixer (there is no such config option),
+    // so it has no equivalent here.
+
+    // --- Ported from ftfy's tests/test_entities.py ---
+
+    fn config_unescape(unescape_html: bool) -> TextFixerConfig {
+        TextFixerConfig {
+            unescape_html: Some(unescape_html),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_entities() {
+        let example = "&amp;\n<html>\n&amp;";
+
+        // Auto mode: a literal `<` in a later segment disables unescaping from
+        // that segment on, but `fix_text_segment` sees the whole thing as one
+        // segment and so disables unescaping entirely.
+        assert_eq!(fix_text(example, None), "&\n<html>\n&amp;");
+        assert_eq!(fix_text_segment(example, None), "&amp;\n<html>\n&amp;");
+
+        let on = config_unescape(true);
+        let off = config_unescape(false);
+
+        assert_eq!(fix_text(example, Some(&on)), "&\n<html>\n&");
+        assert_eq!(fix_text_segment(example, Some(&on)), "&\n<html>\n&");
+
+        assert_eq!(fix_text(example, Some(&off)), "&amp;\n<html>\n&amp;");
+        assert_eq!(
+            fix_text_segment(example, Some(&off)),
+            "&amp;\n<html>\n&amp;"
+        );
+
+        assert_eq!(fix_text_segment("&lt;&gt;", Some(&off)), "&lt;&gt;");
+        assert_eq!(fix_text_segment("&lt;&gt;", Some(&on)), "<>");
+        assert_eq!(fix_text_segment("&lt;&gt;", None), "<>");
+
+        assert_eq!(
+            fix_text_segment("jednocze&sacute;nie", None),
+            "jednocześnie"
+        );
+        assert_eq!(
+            fix_text_segment("JEDNOCZE&Sacute;NIE", None),
+            "JEDNOCZEŚNIE"
+        );
+
+        let nfkc = TextFixerConfig {
+            normalization: Some(Normalization::NFKC),
+            ..Default::default()
+        };
+        assert_eq!(
+            fix_text_segment("ellipsis&#133;", Some(&nfkc)),
+            "ellipsis..."
+        );
+        assert_eq!(
+            fix_text_segment("ellipsis&#x85;", Some(&nfkc)),
+            "ellipsis..."
+        );
+
+        assert_eq!(fix_text_segment("broken&#x81;", None), "broken\u{81}");
+        assert_eq!(fix_text_segment("&amp;amp;amp;", None), "&");
+
+        assert_eq!(
+            fix_text_segment("this is just informal english &not html", None),
+            "this is just informal english &not html"
+        );
+    }
+
+    #[test]
+    fn test_entities_unescape_html() {
+        // The `unescape_html` assertions from ftfy's test_entities.
+        assert_eq!(unescape_html("euro &#x80;"), "euro €");
+        assert_eq!(unescape_html("EURO &EURO;"), "EURO €");
+        assert_eq!(
+            unescape_html("not an entity &#20x6;"),
+            "not an entity &#20x6;"
+        );
+        assert_eq!(unescape_html("JEDNOCZE&SACUTE;NIE"), "JEDNOCZEŚNIE");
+        assert_eq!(unescape_html("V&SCARON;ICHNI"), "VŠICHNI");
+        assert_eq!(unescape_html("&#xffff;"), "");
+        assert_eq!(unescape_html("&#xffffffff;"), "\u{fffd}");
     }
 }

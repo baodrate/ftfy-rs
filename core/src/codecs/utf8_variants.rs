@@ -259,4 +259,44 @@ mod tests {
         let output = variant_decode(&input).unwrap();
         assert_eq!("AAA", output);
     }
+
+    // Ported from ftfy's `tests/test_encodings.py::test_cesu8`. A CESU-8
+    // surrogate pair decodes to its astral codepoint, and an overlong NUL
+    // decodes to U+0000.
+    #[test]
+    fn test_cesu8() {
+        let test_bytes =
+            b"\xed\xa6\x9d\xed\xbd\xb7 is an unassigned character, and \xc0\x80 is null";
+        let test_text = "\u{77777} is an unassigned character, and \u{0} is null";
+        assert_eq!(variant_decode(test_bytes).unwrap(), test_text);
+    }
+
+    // Ported from ftfy's `tests/test_encodings.py::test_russian_crash`: these
+    // bytes are not valid utf-8-variants, but decoding them must not panic.
+    #[test]
+    fn test_russian_does_not_crash() {
+        let thebytes = b"\xe8\xed\xe2\xe5\xed\xf2\xe0\xf0\xe8\xe7\xe0\xf6\xe8\xff ";
+        // We don't care about the result, only that it returns rather than panics.
+        let _ = variant_decode(thebytes);
+    }
+
+    // Ported from ftfy's `tests/test_bytes.py::test_incomplete_sequences`. ftfy
+    // feeds the bytes to an incremental decoder split at every offset; plsfix
+    // has no incremental decoder, so we check the one-shot decode of the full
+    // input (the surrogate pair and overlong NUL both decode correctly).
+    #[test]
+    fn test_surrogates_and_null() {
+        let test_bytes = b"surrogates: \xed\xa0\x80\xed\xb0\x80 / null: \xc0\x80";
+        let test_string = "surrogates: \u{10000} / null: \u{0}";
+        assert_eq!(variant_decode(test_bytes).unwrap(), test_string);
+    }
+
+    // Ported from ftfy's `tests/test_bytes.py::test_guess_bytes_null`. plsfix
+    // has no `guess_bytes`, but the underlying utf-8-variants decode of a
+    // bowdlerized NUL is what that test ultimately exercises.
+    #[test]
+    fn test_bowdlerized_null() {
+        let test_bytes = b"null\xc0\x80separated";
+        assert_eq!(variant_decode(test_bytes).unwrap(), "null\u{0}separated");
+    }
 }
