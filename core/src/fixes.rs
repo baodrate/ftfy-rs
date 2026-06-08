@@ -890,3 +890,103 @@ mod tests {
         );
     }
 }
+
+/// Ported from ftfy's `tests/test_characters.py`
+#[cfg(test)]
+mod ftfy_test_characters {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_control_chars() {
+        let text = "\u{feff}Sometimes, \u{fffc}bad ideas \u{7f}\u{fffa}like these characters\u{fffb} \u{206a}get standardized.\r\n";
+        let fixed = "Sometimes, bad ideas like these characters get standardized.\r\n";
+        assert_eq!(remove_control_chars(text), fixed);
+    }
+
+    // ftfy used to remove "tag characters", but they have been repurposed in the
+    // "Flag of England", "Flag of Scotland", and "Flag of Wales" emoji sequences.
+    #[test]
+    fn test_welsh_flag() {
+        let codepoints = "\u{1f3f4}\u{e0067}\u{e0062}\u{e0077}\u{e006c}\u{e0073}\u{e007f}";
+        let text = "This flag has a dragon on it 🏴󠁧󠁢󠁷󠁬󠁳󠁿";
+        assert_eq!(text, format!("This flag has a dragon on it {codepoints}"));
+        assert_eq!(remove_control_chars(text), text);
+    }
+}
+
+/// Ported from ftfy's `tests/test_entities.py`
+#[cfg(test)]
+mod ftfy_test_entities {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_unescape_html_euro_numeric() {
+        assert_eq!(unescape_html("euro &#x80;"), "euro €");
+    }
+
+    #[test]
+    fn test_unescape_html_euro_named_all_caps() {
+        assert_eq!(unescape_html("EURO &EURO;"), "EURO €");
+    }
+
+    #[test]
+    fn test_unescape_html_not_an_entity() {
+        assert_eq!(
+            unescape_html("not an entity &#20x6;"),
+            "not an entity &#20x6;"
+        );
+    }
+
+    #[test]
+    fn test_unescape_html_sacute_all_caps() {
+        assert_eq!(unescape_html("JEDNOCZE&SACUTE;NIE"), "JEDNOCZEŚNIE");
+    }
+
+    #[test]
+    fn test_unescape_html_scaron_all_caps() {
+        assert_eq!(unescape_html("V&SCARON;ICHNI"), "VŠICHNI");
+    }
+
+    #[test]
+    fn test_unescape_html_noncharacter() {
+        assert_eq!(unescape_html("&#xffff;"), "");
+    }
+
+    // > 0x10FFFF → U+FFFD per WHATWG § 13.2.5.80.
+    #[test]
+    fn test_unescape_html_out_of_range() {
+        assert_eq!(unescape_html("&#xffffffff;"), "\u{fffd}");
+    }
+
+    // other html tests
+
+    #[test]
+    fn test_unescape_html_above_unicode_max() {
+        assert_eq!(unescape_html("&#x110000;"), "\u{fffd}");
+    }
+
+    // NUL → U+FFFD per WHATWG § 13.2.5.80.
+    #[test]
+    fn test_unescape_html_nul() {
+        assert_eq!(unescape_html("&#0;"), "\u{fffd}");
+    }
+
+    // 0x80..=0x9F C1 remap per WHATWG § 13.2.5.80.
+    #[test]
+    fn test_unescape_html_c1_range_decimal() {
+        assert_eq!(unescape_html("&#128;"), "€");
+    }
+
+    #[test]
+    fn test_unescape_html_c1_range_dash() {
+        assert_eq!(unescape_html("en &#x96; dash"), "en \u{2013} dash");
+    }
+
+    #[test]
+    fn test_unescape_html_c1_self_mapped() {
+        // 0x9D has no HTML5 replacement → U+009D.
+        assert_eq!(unescape_html("&#x9d;"), "\u{9d}");
+    }
+}

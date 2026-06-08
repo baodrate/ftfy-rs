@@ -260,3 +260,96 @@ mod tests {
         assert_eq!("AAA", output);
     }
 }
+
+/// Ported from ftfy's `tests/test_encodings.py`
+#[cfg(test)]
+mod ftfy_test_encodings {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    // A CESU-8 surrogate pair decodes to its astral codepoint, and an overlong NUL decodes to U+0000.
+    #[test]
+    fn test_cesu8() {
+        // TODO: confirm that we're actually decoding as CESU-8
+        let test_bytes =
+            b"\xed\xa6\x9d\xed\xbd\xb7 is an unassigned character, and \xc0\x80 is null";
+        let test_text = "\u{77777} is an unassigned character, and \u{0} is null";
+        assert_eq!(variant_decode(test_bytes).unwrap(), test_text);
+    }
+
+    #[test]
+    fn test_russian_crash() {
+        let thebytes = b"\xe8\xed\xe2\xe5\xed\xf2\xe0\xf0\xe8\xe7\xe0\xf6\xe8\xff ";
+        // We don't care what the result is, but this shouldn't crash
+        let _ = variant_decode(thebytes);
+        // TODO: we haven't implemented `guess_bytes()`
+    }
+}
+
+/// Ported from ftfy's `tests/test_bytes.py`
+#[cfg(test)]
+mod ftfy_test_bytes {
+    use super::*;
+    use crate::codecs::sloppy::Codec;
+    use crate::codecs::sloppy::MACROMAN;
+    use crate::codecs::sloppy::SLOPPY_WINDOWS_1252;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    #[ignore = "unable to test without guess_bytes"]
+    fn test_guess_bytes() {
+        let test_encodings = [
+            // TODO: utf-8/utf-16?
+            &SLOPPY_WINDOWS_1252,
+        ];
+        let test_strings = [
+            &"Renée\nFleming",
+            &"Noël\nCoward",
+            &"Señor\nCardgage",
+            &"€ • £ • ¥",
+            &"¿Qué?",
+        ];
+
+        for string in test_strings {
+            assert!(!string.is_empty());
+
+            for encoding in test_encodings {
+                let encoded = encoding.encode(string).unwrap();
+                assert!(!encoded.is_empty());
+                // TODO: test with `guess_bytes()` once implemented
+                // assert_eq!(guess_bytes(encoded), encoding);
+            }
+
+            if string.contains("\n") {
+                let string = string.replace("\n", "\r");
+                let encoded = MACROMAN.encode(string.as_str()).unwrap();
+                assert!(!encoded.is_empty());
+                // TODO: test with `guess_bytes()` once implemented
+                unimplemented!();
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "unable to test without guess_bytes"]
+    fn test_guess_bytes_null() {
+        let bowdlerized_null = b"null\xc0\x80separated";
+        let expected = "null\x00separated";
+        assert_eq!(variant_decode(bowdlerized_null).unwrap(), expected);
+        // TODO: enable test after implementing `guess_bytes()`
+        unimplemented!()
+    }
+
+    #[test]
+    #[ignore = "unable to test without incremental decoder"]
+    fn test_incomplete_sequences() {
+        let test_bytes = b"surrogates: \xed\xa0\x80\xed\xb0\x80 / null: \xc0\x80";
+        let test_string = "surrogates: \u{10000} / null: \u{0}";
+        assert_eq!(variant_decode(test_bytes).unwrap(), test_string);
+
+        // Test that we can feed this string to decode() in multiple pieces, and no
+        // matter where the break between those pieces is, we get the same result.
+        // TODO: enable test after implementing incremental decoder
+        unimplemented!()
+    }
+}
