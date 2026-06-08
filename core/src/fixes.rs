@@ -889,4 +889,62 @@ mod tests {
             "\\\\U12345678".as_bytes()
         );
     }
+
+    // Ported from ftfy's `tests/test_characters.py::test_control_chars`.
+    #[test]
+    fn test_control_chars() {
+        let text = "\u{feff}Sometimes, \u{fffc}bad ideas \u{7f}\u{fffa}like these characters\u{fffb} \u{206a}get standardized.\r\n";
+        let fixed = "Sometimes, bad ideas like these characters get standardized.\r\n";
+        assert_eq!(remove_control_chars(text), fixed);
+    }
+
+    // Ported from ftfy's `tests/test_characters.py::test_welsh_flag`. ftfy used
+    // to strip "tag characters", but they were repurposed for the Flag of
+    // Wales (and England/Scotland) emoji sequences, so they must pass through.
+    #[test]
+    fn test_welsh_flag() {
+        let text =
+            "This flag has a dragon on it 🏴\u{e0067}\u{e0062}\u{e0077}\u{e006c}\u{e0073}\u{e007f}";
+        assert_eq!(remove_control_chars(text), text);
+    }
+
+    // The `unescape_html` assertions from ftfy's
+    // `tests/test_entities.py::test_entities`.
+    #[test]
+    fn test_unescape_html_euro_numeric() {
+        assert_eq!(unescape_html("euro &#x80;"), "euro €");
+    }
+
+    #[test]
+    fn test_unescape_html_euro_named_all_caps() {
+        assert_eq!(unescape_html("EURO &EURO;"), "EURO €");
+    }
+
+    #[test]
+    fn test_unescape_html_not_an_entity() {
+        assert_eq!(
+            unescape_html("not an entity &#20x6;"),
+            "not an entity &#20x6;"
+        );
+    }
+
+    #[test]
+    fn test_unescape_html_sacute_all_caps() {
+        assert_eq!(unescape_html("JEDNOCZE&SACUTE;NIE"), "JEDNOCZEŚNIE");
+    }
+
+    #[test]
+    fn test_unescape_html_scaron_all_caps() {
+        assert_eq!(unescape_html("V&SCARON;ICHNI"), "VŠICHNI");
+    }
+
+    #[test]
+    fn test_unescape_html_noncharacter() {
+        assert_eq!(unescape_html("&#xffff;"), "");
+    }
+
+    #[test]
+    fn test_unescape_html_out_of_range() {
+        assert_eq!(unescape_html("&#xffffffff;"), "\u{fffd}");
+    }
 }
