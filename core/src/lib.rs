@@ -326,15 +326,26 @@ pub fn fix_and_explain(
     :func:`apply_plan`, or if config.explain is False, it will be None.
     */
     let mut text = text.to_string();
-    let config = match config {
+    let mut config = match config {
         Some(config) => config.clone(),
         None => TextFixerConfig::default(),
     };
 
+    // Match ftfy: in auto mode, a literal `<` means probable real HTML, so
+    // leave its entities alone.
+    if config.unescape_html.is_none() && text.contains('<') {
+        config.unescape_html = Some(false);
+    }
+
     let mut steps: Option<Vec<ExplanationStep>> = if explain { Some(Vec::new()) } else { None };
 
     for _ in 0..MAX_ATTEMPTS {
-        let temp = unescape_html(&text);
+        // auto and `Some(true)` unescape; `Some(false)` skips (ftfy: "auto"/True are truthy).
+        let temp = if config.unescape_html == Some(false) {
+            Cow::Borrowed(text.as_str())
+        } else {
+            unescape_html(&text)
+        };
 
         let temp = if config.fix_encoding {
             let encoding_fixed = fix_encoding_and_explain(&temp, explain, Some(&config));
