@@ -79,3 +79,23 @@ The following text could be encoded in Windows-1252 and decoded in UTF-8, and it
     >>> plsfix.fix_text('IL Y MARQUÉ…')
     'IL Y MARQUÉ…'
 ```
+
+## Comparison with ftfy
+
+### Implemented
+
+- [x] `fix_text`
+- [x] `fix_and_explain`
+- [ ] `fix_encoding` / `fix_encoding_and_explain`
+- [ ] `guess_bytes`
+- [ ] `fix_file`
+- [ ] command-line tool
+
+### Differences
+
+plsfix aims to match ftfy behavior, but a few things differ:
+
+- **Explanation shape.** `ExplanationStep` is a flat `transformation` string rather than ftfy's `(action, parameter)` tuple, so explanations can't be replayed via `apply_plan`.
+- **No surrogate pass.** `fix_surrogates` is absent: Rust strings can't hold lone surrogates, and `remove_control_chars` already strips U+FEFF.
+- **Bounded loops.** Fixed-point loops cap at 16 passes (ftfy loops unbounded); real text converges well before this.
+- **Baltic gap.** `windows-1257` is not yet a candidate codec, so some Baltic-language mojibake that ftfy fixes is left unchanged.
