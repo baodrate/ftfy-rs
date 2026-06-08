@@ -9,6 +9,7 @@ mod codecs;
 
 use std::borrow::Cow;
 use std::cmp::min;
+use std::num::NonZeroUsize;
 
 use badness::is_bad;
 use chardata::possible_encoding;
@@ -153,7 +154,8 @@ Here are the options and their default values:
 
 - `max_decode_length`: 1_000_000
 
-    The maximum size of "segment" that plsfix will try to fix all at once.
+    The maximum size (in bytes) of "segment" that plsfix will try to fix all at
+    once. A `NonZeroUsize`, so it can't be zero.
 
 - `explain`: True
 
@@ -179,7 +181,7 @@ pub struct TextFixerConfig {
     pub fix_line_breaks: bool,
     pub remove_control_chars: bool,
     pub normalization: Option<Normalization>,
-    pub max_decode_length: i32,
+    pub max_decode_length: NonZeroUsize,
 }
 
 impl Default for TextFixerConfig {
@@ -198,7 +200,7 @@ impl Default for TextFixerConfig {
             fix_line_breaks: true,
             remove_control_chars: true,
             normalization: Some(Normalization::NFC),
-            max_decode_length: 1_000_000,
+            max_decode_length: NonZeroUsize::new(1_000_000).unwrap(),
         }
     }
 }
@@ -252,8 +254,8 @@ pub fn fix_text(text: &str, config: Option<&TextFixerConfig>) -> String {
             None => text.len(),
         };
 
-        if (textbreak - pos) > config.max_decode_length as usize {
-            textbreak = min(pos + config.max_decode_length as usize, text.len());
+        if (textbreak - pos) > config.max_decode_length.get() {
+            textbreak = min(pos + config.max_decode_length.get(), text.len());
         }
 
         let segment = &text[pos..textbreak];
