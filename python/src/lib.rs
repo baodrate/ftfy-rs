@@ -1,11 +1,19 @@
 use std::panic;
 
 use ::plsfix::{ExplainedText, ExplanationStep, Normalization, TextFixerConfig};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+
+// ftfy's tri-state `unescape_html`: "auto", True, or False.
+#[derive(Debug, Clone, FromPyObject)]
+enum UnescapeHtml {
+    Bool(bool),
+    Mode(String),
+}
 
 // Accepted as a function argument, so it needs the `FromPyObject` derive
 // (opt-in as of pyo3 0.28).
-#[pyclass(from_py_object)]
+#[pyclass(name = "TextFixerConfig", from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyTextFixerConfig {
     pub unescape_html: Option<bool>,
@@ -19,13 +27,103 @@ pub struct PyTextFixerConfig {
     pub fix_character_width: bool,
     pub uncurl_quotes: bool,
     pub fix_line_breaks: bool,
+    pub fix_surrogates: bool,
     pub remove_control_chars: bool,
     pub normalization: Option<Normalization>,
     pub max_decode_length: i32,
+    pub explain: bool,
+}
+
+#[pymethods]
+impl PyTextFixerConfig {
+    // Matches ftfy's field names, order, and defaults so ftfy code constructs
+    // it unchanged.
+    #[new]
+    #[pyo3(signature = (
+        unescape_html=None,
+        remove_terminal_escapes=true,
+        fix_encoding=true,
+        restore_byte_a0=true,
+        replace_lossy_sequences=true,
+        decode_inconsistent_utf8=true,
+        fix_c1_controls=true,
+        fix_latin_ligatures=true,
+        fix_character_width=true,
+        uncurl_quotes=true,
+        fix_line_breaks=true,
+        fix_surrogates=true,
+        remove_control_chars=true,
+        normalization="NFC".to_string(),
+        max_decode_length=1_000_000,
+        explain=true,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        unescape_html: Option<UnescapeHtml>,
+        remove_terminal_escapes: bool,
+        fix_encoding: bool,
+        restore_byte_a0: bool,
+        replace_lossy_sequences: bool,
+        decode_inconsistent_utf8: bool,
+        fix_c1_controls: bool,
+        fix_latin_ligatures: bool,
+        fix_character_width: bool,
+        uncurl_quotes: bool,
+        fix_line_breaks: bool,
+        fix_surrogates: bool,
+        remove_control_chars: bool,
+        normalization: Option<String>,
+        max_decode_length: i32,
+        explain: bool,
+    ) -> PyResult<Self> {
+        // "auto" / not-passed -> None; explicit True/False -> Some(bool).
+        let unescape_html = match unescape_html {
+            None => None,
+            Some(UnescapeHtml::Bool(b)) => Some(b),
+            Some(UnescapeHtml::Mode(mode)) if mode == "auto" => None,
+            Some(UnescapeHtml::Mode(other)) => {
+                return Err(PyValueError::new_err(format!(
+                    "invalid unescape_html {other:?}, expected True, False, or \"auto\""
+                )))
+            }
+        };
+        let normalization = match normalization {
+            None => None,
+            Some(name) => Some(match name.as_str() {
+                "NFC" => Normalization::NFC,
+                "NFKC" => Normalization::NFKC,
+                "NFD" => Normalization::NFD,
+                "NFKD" => Normalization::NFKD,
+                other => {
+                    return Err(PyValueError::new_err(format!(
+                        "invalid normalization {other:?}, expected NFC/NFKC/NFD/NFKD or None"
+                    )))
+                }
+            }),
+        };
+        Ok(Self {
+            unescape_html,
+            remove_terminal_escapes,
+            fix_encoding,
+            restore_byte_a0,
+            replace_lossy_sequences,
+            decode_inconsistent_utf8,
+            fix_c1_controls,
+            fix_latin_ligatures,
+            fix_character_width,
+            uncurl_quotes,
+            fix_line_breaks,
+            fix_surrogates,
+            remove_control_chars,
+            normalization,
+            max_decode_length,
+            explain,
+        })
+    }
 }
 
 // Output-only, never extracted from Python, so skip the `FromPyObject` derive.
-#[pyclass(skip_from_py_object)]
+#[pyclass(name = "ExplanationStep", skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyExplanationStep {
     pub transformation: String,
@@ -40,7 +138,7 @@ impl PyExplanationStep {
 }
 
 // Output-only, never extracted from Python, so skip the `FromPyObject` derive.
-#[pyclass(skip_from_py_object)]
+#[pyclass(name = "ExplainedText", skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyExplainedText {
     pub text: String,
@@ -116,12 +214,11 @@ pub fn fix_text(text: &str, config: Option<PyTextFixerConfig>) -> String {
 }
 
 #[pyfunction]
-#[pyo3(signature = (text, explain, config=None))]
-pub fn fix_and_explain(
-    text: &str,
-    explain: bool,
-    config: Option<PyTextFixerConfig>,
-) -> PyExplainedText {
+#[pyo3(signature = (text, config=None))]
+pub fn fix_and_explain(text: &str, config: Option<PyTextFixerConfig>) -> PyExplainedText {
+    // ftfy controls explanations via `config.explain` (default True), not a
+    // separate argument.
+    let explain = config.as_ref().map_or(true, |c| c.explain);
     let config = config.map(PyTextFixerConfig::into);
     let config_ref = config.as_ref();
 
@@ -138,6 +235,9 @@ pub fn fix_and_explain(
 
 #[pymodule]
 fn plsfix(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyTextFixerConfig>()?;
+    m.add_class::<PyExplainedText>()?;
+    m.add_class::<PyExplanationStep>()?;
     m.add_function(wrap_pyfunction!(fix_text, m)?)?;
     m.add_function(wrap_pyfunction!(fix_and_explain, m)?)?;
     Ok(())
