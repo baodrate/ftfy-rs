@@ -8,7 +8,6 @@ mod fixes;
 mod codecs;
 
 use std::borrow::Cow;
-use std::cmp::min;
 use std::num::NonZeroUsize;
 
 use badness::is_bad;
@@ -205,6 +204,27 @@ impl Default for TextFixerConfig {
     }
 }
 
+/// Splits the first segment off the front of `text`: up to and including the
+/// next `\n`, but at most `max_decode_length` bytes (so newline-free input is
+/// still chunked without scanning to its end). Returns `(segment, rest)`, or
+/// `None` when `text` is empty. The split lands on a char boundary and `segment`
+/// is non-empty, so `successors(.., |(_, rest)| split_segment(rest, ..))`
+/// terminates and never slices mid-character.
+fn split_segment(text: &str, max_decode_length: usize) -> Option<(&str, &str)> {
+    if text.is_empty() {
+        return None;
+    }
+    // floor/ceil keep the split on a char boundary (floor also clamps to len).
+    let window_end = text.floor_char_boundary(max_decode_length);
+    let end = match text[..window_end].find('\n') {
+        Some(idx) => idx + 1,
+        None if window_end > 0 => window_end,
+        // Budget smaller than the first char: step forward to make progress.
+        None => text.ceil_char_boundary(max_decode_length),
+    };
+    Some(text.split_at(end))
+}
+
 pub fn fix_text(text: &str, config: Option<&TextFixerConfig>) -> String {
     /*
     Given Unicode text as input, fix inconsistencies and glitches in it,
@@ -224,9 +244,12 @@ pub fn fix_text(text: &str, config: Option<&TextFixerConfig>) -> String {
         fix_text(text, uncurl_quotes=False)
 
     This function fixes text in independent segments, which are usually lines
-    of text, or arbitrarily broken up every 1 million codepoints (configurable
+    of text, or arbitrarily broken up every 1 million bytes (configurable
     with `config.max_decode_length`) if there aren't enough line breaks. The
     bound on segment lengths helps to avoid unbounded slowdowns.
+
+    (ftfy measures this bound in codepoints; plsfix measures it in bytes. The
+    exact split point is arbitrary either way.)
 
     plsfix can also provide an 'explanation', a list of transformations it applied
     to the text that would fix more text like it. This function doesn't provide
@@ -239,40 +262,33 @@ pub fn fix_text(text: &str, config: Option<&TextFixerConfig>) -> String {
     // let default_config = TextFixerConfig::default();
     // let mut config = config.unwrap_or(&default_config).clone();
 
-    let mut config: TextFixerConfig = match config {
+    let config: TextFixerConfig = match config {
         Some(config) => config.clone(),
         None => TextFixerConfig::default(),
     };
 
-    let mut out: Vec<String> = Vec::new();
+    // Non-zero by construction, so segmentation always advances (no empty segment).
+    let max_decode_length = config.max_decode_length.get();
 
-    let mut pos = 0;
+    // Peel `text` into per-line segments (capped to the byte budget), threading
+    // the remaining text through `successors`. The `\n` stays attached, so the
+    // segments rejoin to the original `text`.
+    let segments =
+        std::iter::successors(split_segment(text, max_decode_length), move |&(_, rest)| {
+            split_segment(rest, max_decode_length)
+        })
+        .map(|(segment, _rest)| segment);
 
-    while pos < text.len() {
-        let mut textbreak = match text[pos..].find("\n") {
-            Some(idx) => pos + idx + 1,
-            None => text.len(),
-        };
-
-        if (textbreak - pos) > config.max_decode_length.get() {
-            textbreak = min(pos + config.max_decode_length.get(), text.len());
-        }
-
-        let segment = &text[pos..textbreak];
-
-        if config.unescape_html.is_none() {
-            if segment.contains("<") {
+    // Fix each segment. The `<` check disables HTML unescaping for this and every
+    // later segment (matching ftfy); `scan` threads that state left-to-right.
+    segments
+        .scan(config, |config, segment| {
+            if config.unescape_html.is_none() && segment.contains("<") {
                 config.unescape_html = Some(false);
             }
-        }
-
-        let res = fix_and_explain(segment, false, Some(&config));
-        out.push(res.text);
-
-        pos = textbreak;
-    }
-
-    out.join("")
+            Some(fix_and_explain(segment, false, Some(config)).text)
+        })
+        .collect()
 }
 
 /*
@@ -1798,5 +1814,70 @@ mod tests {
         let expected = "OÙ ET QUAND?";
         let result = fix_text(original, None);
         assert_eq!(result, expected);
+    }
+
+    // Regression test for https://github.com/kevinhu/plsfix/issues/1: a byte
+    // budget landing mid-character used to panic ("not a char boundary"); the
+    // split must snap to a char boundary instead.
+    #[test]
+    fn test_max_decode_length_does_not_split_inside_a_character() {
+        use super::TextFixerConfig;
+
+        // 3-byte chars, no newline; a 7-byte cap lands inside the third char.
+        let original = "あ".repeat(50);
+        let config = TextFixerConfig {
+            max_decode_length: std::num::NonZeroUsize::new(7).unwrap(),
+            ..Default::default()
+        };
+        let result = fix_text(&original, Some(&config));
+        assert_eq!(result, original);
+    }
+
+    // Collect the segments `fix_text` would produce, the same way it does.
+    fn segments(text: &str, max: usize) -> Vec<&str> {
+        std::iter::successors(super::split_segment(text, max), |&(_, rest)| {
+            super::split_segment(rest, max)
+        })
+        .map(|(segment, _rest)| segment)
+        .collect()
+    }
+
+    #[test]
+    fn test_split_segment_specific_splits() {
+        // Newline within budget: split right after the '\n'.
+        assert_eq!(segments("ab\ncd", 100), ["ab\n", "cd"]);
+        // No newline, over budget: split at the byte budget.
+        assert_eq!(segments("abcdef", 4), ["abcd", "ef"]);
+        // Trailing newline produces no empty final segment.
+        assert_eq!(segments("ab\n", 100), ["ab\n"]);
+        // Empty input yields nothing.
+        assert!(segments("", 100).is_empty());
+    }
+
+    #[test]
+    fn test_split_segment_invariants() {
+        // Mixed multibyte chars, newlines, and an emoji, across many budgets.
+        let many_kana = "あ".repeat(10);
+        let texts: [&str; 6] = [
+            "",
+            "abc",
+            "a\nb\n",
+            &many_kana,
+            "a\nありがとう\nbb🦀x",
+            "🦀🦀🦀🦀🦀",
+        ];
+        for text in texts {
+            for max in [1usize, 2, 3, 4, 7, 1_000_000] {
+                let segs = segments(text, max);
+                // Non-empty (so iteration terminates) and tiling the input with
+                // no data loss (`split_at` already guarantees char boundaries).
+                assert!(
+                    segs.iter().all(|s| !s.is_empty()),
+                    "empty segment in {text:?} max={max}",
+                );
+                let joined: String = segs.concat();
+                assert_eq!(joined, text, "segments don't tile {text:?} max={max}");
+            }
+        }
     }
 }
