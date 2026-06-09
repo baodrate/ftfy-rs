@@ -11,25 +11,49 @@ use regex::{Regex, Replacer};
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 
+fn parse_numeric_ref(text: &str) -> Option<u32> {
+    // `text` is the whole match, including the leading `&#` and trailing `;`.
+    let inner = text.strip_prefix("&#")?.strip_suffix(';')?;
+    if let Some(hex) = inner.strip_prefix(['x', 'X']) {
+        u32::from_str_radix(hex, 16).ok()
+    } else {
+        inner.parse::<u32>().ok()
+    }
+}
+
 fn _unescape_fixup(capture: &regex::Captures) -> String {
     /*
     Replace one matched HTML entity with the character it represents,
     if possible.
     */
     let text = capture.get(0).map_or("", |m| m.as_str());
-    match HTML_ENTITIES.get(text) {
-        Some(val) => val.to_string(),
-        None => {
-            if text.starts_with("&#") {
-                let unescaped = html_escape::decode_html_entities(text);
-                if unescaped.contains(";") {
-                    return text.to_string();
+    if let Some(val) = HTML_ENTITIES.get(text) {
+        return val.to_string();
+    }
+    if text.starts_with("&#") {
+        // WHATWG § 13.2.5.80 ("Numeric character reference end state"): apply
+        // the cases where ftfy/spec agree and `html_escape` is wrong. NUL and
+        // > 0x10FFFF → U+FFFD; 0x80..=0x9F → C1 remap (Windows-1252 values).
+        // Surrogates left to `html_escape` for now — see issue #12.
+        // Noncharacters fall through and emit their codepoint per spec.
+        if let Some(num) = parse_numeric_ref(text) {
+            if num == 0 || num > 0x10FFFF {
+                return "\u{fffd}".to_string();
+            }
+            if (0x80..=0x9F).contains(&num) {
+                if let Some(bytes) = C1_TO_WINDOWS.get(&(num as u8)) {
+                    return String::from_utf8(bytes.clone())
+                        .expect("C1_TO_WINDOWS values are valid UTF-8");
                 }
-                unescaped.to_string()
-            } else {
-                text.to_string()
             }
         }
+        let unescaped = html_escape::decode_html_entities(text);
+        if unescaped.contains(';') {
+            return text.to_string();
+        }
+        unescaped.to_string()
+    } else {
+        text.to_string()
     }
 }
 
@@ -938,13 +962,45 @@ mod tests {
         assert_eq!(unescape_html("V&SCARON;ICHNI"), "VŠICHNI");
     }
 
+    // WHATWG § 13.2.5.80: noncharacters are emitted as their codepoint
+    // ("parse error, but the character is emitted"). Python's
+    // `html.unescape` deletes them; plsfix follows WHATWG.
     #[test]
     fn test_unescape_html_noncharacter() {
-        assert_eq!(unescape_html("&#xffff;"), "");
+        assert_eq!(unescape_html("&#xffff;"), "\u{ffff}");
     }
 
+    // > 0x10FFFF → U+FFFD per WHATWG § 13.2.5.80.
     #[test]
     fn test_unescape_html_out_of_range() {
         assert_eq!(unescape_html("&#xffffffff;"), "\u{fffd}");
+    }
+
+    #[test]
+    fn test_unescape_html_above_unicode_max() {
+        assert_eq!(unescape_html("&#x110000;"), "\u{fffd}");
+    }
+
+    // NUL → U+FFFD per WHATWG § 13.2.5.80.
+    #[test]
+    fn test_unescape_html_nul() {
+        assert_eq!(unescape_html("&#0;"), "\u{fffd}");
+    }
+
+    // 0x80..=0x9F C1 remap per WHATWG § 13.2.5.80.
+    #[test]
+    fn test_unescape_html_c1_range_decimal() {
+        assert_eq!(unescape_html("&#128;"), "€");
+    }
+
+    #[test]
+    fn test_unescape_html_c1_range_dash() {
+        assert_eq!(unescape_html("en &#x96; dash"), "en \u{2013} dash");
+    }
+
+    #[test]
+    fn test_unescape_html_c1_self_mapped() {
+        // 0x9D has no HTML5 replacement → U+009D.
+        assert_eq!(unescape_html("&#x9d;"), "\u{9d}");
     }
 }
