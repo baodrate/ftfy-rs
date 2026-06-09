@@ -106,3 +106,8 @@ plsfix aims to match ftfy behavior, but a few things differ:
 ### Limitations (shared with ftfy)
 
 - **HTML escapes**: max html entity length (minus `&` and `;`) of 24 characters (see HTML_ENTITY_RE); but (per [WHATWG](https://html.spec.whatwg.org/multipage/named-characters.html)) longer named entities exist, e.g. `&CounterClockwiseContourIntegral;`
+- **Terminal escapes**: `remove_terminal_escapes` strips only CSI commands (i.e. `\x1b [ …`). Unsupported (not comprehensive):
+  - Private-mode CSI (`\x1b [ … [<=>?] …`)
+  - OSC (`\x1b ] …`)
+  - DSC (`\x1b P …`)
+  - APC (`\x1b _ …`)
