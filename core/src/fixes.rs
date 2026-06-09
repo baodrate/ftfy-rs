@@ -8,18 +8,7 @@ use crate::{
     fix_encoding_and_explain,
 };
 use regex::{Regex, Replacer};
-use rustc_hash::FxHashMap;
 use std::borrow::Cow;
-
-fn parse_numeric_ref(text: &str) -> Option<u32> {
-    // `text` is the whole match, including the leading `&#` and trailing `;`.
-    let inner = text.strip_prefix("&#")?.strip_suffix(';')?;
-    if let Some(hex) = inner.strip_prefix(['x', 'X']) {
-        u32::from_str_radix(hex, 16).ok()
-    } else {
-        inner.parse::<u32>().ok()
-    }
-}
 
 fn _unescape_fixup(capture: &regex::Captures) -> String {
     /*
@@ -27,27 +16,17 @@ fn _unescape_fixup(capture: &regex::Captures) -> String {
     if possible.
     */
     let text = capture.get(0).map_or("", |m| m.as_str());
+    // `HTML_ENTITIES` carries the ~190 ALL-CAPS aliases that ftfy adds on top
+    // of the WHATWG named set (e.g. `&EACUTE;` → `É`); not in `htmlize`.
     if let Some(val) = HTML_ENTITIES.get(text) {
         return val.to_string();
     }
     if text.starts_with("&#") {
-        // WHATWG § 13.2.5.80 ("Numeric character reference end state"): apply
-        // the cases where ftfy/spec agree and `html_escape` is wrong. NUL and
-        // > 0x10FFFF → U+FFFD; 0x80..=0x9F → C1 remap (Windows-1252 values).
-        // Surrogates left to `html_escape` for now — see issue #12.
-        // Noncharacters fall through and emit their codepoint per spec.
-        if let Some(num) = parse_numeric_ref(text) {
-            if num == 0 || num > 0x10FFFF {
-                return "\u{fffd}".to_string();
-            }
-            if (0x80..=0x9F).contains(&num) {
-                if let Some(bytes) = C1_TO_WINDOWS.get(&(num as u8)) {
-                    return String::from_utf8(bytes.clone())
-                        .expect("C1_TO_WINDOWS values are valid UTF-8");
-                }
-            }
-        }
-        let unescaped = html_escape::decode_html_entities(text);
+        // Defer to `htmlize` for WHATWG § 13.2.5.80: C1 remap, NUL /
+        // > 0x10FFFF / surrogate → U+FFFD, noncharacter → emit codepoint.
+        // `backend_divergence` tests pin the cases where this differs from
+        // `html_escape`.
+        let unescaped = htmlize::unescape(text);
         if unescaped.contains(';') {
             return text.to_string();
         }
@@ -383,45 +362,6 @@ pub fn replace_lossy_sequences(byts: &Vec<u8>) -> Vec<u8> {
     LOSSY_UTF8_RE
         .replace_all(&byts[..], replace_content)
         .to_vec()
-}
-
-lazy_static! {
-    pub static ref C1_TO_WINDOWS: FxHashMap<u8, Vec<u8>> = {
-        let mut map: FxHashMap<u8, Vec<u8>> = FxHashMap::default();
-        map.insert(0x80, vec![0xe2, 0x82, 0xac]);
-        map.insert(0x81, vec![0xc2, 0x81]);
-        map.insert(0x82, vec![0xe2, 0x80, 0x9a]);
-        map.insert(0x83, vec![0xc6, 0x92]);
-        map.insert(0x84, vec![0xe2, 0x80, 0x9e]);
-        map.insert(0x85, vec![0xe2, 0x80, 0xa6]);
-        map.insert(0x86, vec![0xe2, 0x80, 0xa0]);
-        map.insert(0x87, vec![0xe2, 0x80, 0xa1]);
-        map.insert(0x88, vec![0xcb, 0x86]);
-        map.insert(0x89, vec![0xe2, 0x80, 0xb0]);
-        map.insert(0x8a, vec![0xc5, 0xa0]);
-        map.insert(0x8b, vec![0xe2, 0x80, 0xb9]);
-        map.insert(0x8c, vec![0xc5, 0x92]);
-        map.insert(0x8d, vec![0xc2, 0x8d]);
-        map.insert(0x8e, vec![0xc5, 0xbd]);
-        map.insert(0x8f, vec![0xc2, 0x8f]);
-        map.insert(0x90, vec![0xc2, 0x90]);
-        map.insert(0x91, vec![0xe2, 0x80, 0x98]);
-        map.insert(0x92, vec![0xe2, 0x80, 0x99]);
-        map.insert(0x93, vec![0xe2, 0x80, 0x9c]);
-        map.insert(0x94, vec![0xe2, 0x80, 0x9d]);
-        map.insert(0x95, vec![0xe2, 0x80, 0xa2]);
-        map.insert(0x96, vec![0xe2, 0x80, 0x93]);
-        map.insert(0x97, vec![0xe2, 0x80, 0x94]);
-        map.insert(0x98, vec![0xcb, 0x9c]);
-        map.insert(0x99, vec![0xe2, 0x84, 0xa2]);
-        map.insert(0x9a, vec![0xc5, 0xa1]);
-        map.insert(0x9b, vec![0xe2, 0x80, 0xba]);
-        map.insert(0x9c, vec![0xc5, 0x93]);
-        map.insert(0x9d, vec![0xc2, 0x9d]);
-        map.insert(0x9e, vec![0xc5, 0xbe]);
-        map.insert(0x9f, vec![0xc5, 0xb8]);
-        map
-    };
 }
 
 pub fn decode_inconsistent_utf8(text: &str) -> Cow<str> {
@@ -1002,5 +942,186 @@ mod tests {
     fn test_unescape_html_c1_self_mapped() {
         // 0x9D has no HTML5 replacement → U+009D.
         assert_eq!(unescape_html("&#x9d;"), "\u{9d}");
+    }
+}
+
+/// Micro-benchmark for the HTML entity decode path. Run with
+/// `cargo test --release -- --ignored bench_unescape_html --nocapture`.
+/// Reports per-call median time on three representative corpora so we can
+/// measure the cost of switching `_unescape_fixup`'s backend.
+#[cfg(test)]
+mod bench {
+    use super::unescape_html;
+    use std::time::Instant;
+
+    fn measure(name: &str, input: &str, iters: usize) {
+        // warmup
+        for _ in 0..(iters / 10).max(1) {
+            std::hint::black_box(unescape_html(std::hint::black_box(input)));
+        }
+        let mut samples = Vec::with_capacity(11);
+        for _ in 0..11 {
+            let start = Instant::now();
+            for _ in 0..iters {
+                std::hint::black_box(unescape_html(std::hint::black_box(input)));
+            }
+            samples.push(start.elapsed());
+        }
+        samples.sort();
+        let median = samples[samples.len() / 2];
+        let per_iter = median / (iters as u32);
+        println!(
+            "  {:<30} {:>6} B  {:>10.2?}/iter  ({} iters, median over {} runs)",
+            name,
+            input.len(),
+            per_iter,
+            iters,
+            samples.len(),
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_unescape_html() {
+        let plain = "Lorem ipsum dolor sit amet, consectetur adipiscing \
+            elit, sed do eiusmod tempor incididunt ut labore et dolore \
+            magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation."
+            .to_string();
+        let plain_long = plain.repeat(50);
+
+        let named = "P&eacute;rez wrote &lt;hello&gt; &amp; &quot;world&quot; \
+            &ndash; with &mdash; entities &ldquo;everywhere&rdquo;. \
+            &copy; 2026 &middot; &nbsp;&nbsp;&nbsp; &hellip;"
+            .to_string();
+        let named_long = named.repeat(50);
+
+        let numeric = "Caf&#233; au lait &mdash; &#x2014; en&#x2013;dash \
+            &#65; ASCII &#x80; euro &#x9d; self-mapped &#xffff; nonchar \
+            &#x110000; out-of-range &#0; nul &#xD83D; surrogate"
+            .to_string();
+        let numeric_long = numeric.repeat(50);
+
+        println!();
+        println!("unescape_html micro-benchmark:");
+        println!("  (per-iter wall time, smaller is better)");
+        println!();
+
+        measure("plain (no entities, short)", &plain, 20_000);
+        measure("plain (no entities, long)", &plain_long, 1_000);
+        measure("named entities (short)", &named, 20_000);
+        measure("named entities (long)", &named_long, 1_000);
+        measure("numeric refs (short)", &numeric, 20_000);
+        measure("numeric refs (long)", &numeric_long, 1_000);
+    }
+}
+
+/// Pins the numeric-character-reference cases where `html_escape` diverges
+/// from WHATWG § 13.2.5.80 and `htmlize` matches it. Post-swap this stands
+/// as the WHATWG behavioral contract.
+#[cfg(test)]
+mod backend_divergence {
+    use pretty_assertions::assert_eq;
+
+    // C1 range (0x80..=0x9F): WHATWG fixed remap; `html_escape` returns raw C1.
+
+    #[test]
+    fn html_escape_wrong_c1_euro() {
+        assert_eq!(html_escape::decode_html_entities("&#x80;"), "\u{80}");
+    }
+
+    #[test]
+    fn htmlize_correct_c1_euro() {
+        assert_eq!(htmlize::unescape("&#x80;"), "€");
+    }
+
+    #[test]
+    fn html_escape_wrong_c1_endash() {
+        assert_eq!(html_escape::decode_html_entities("&#x96;"), "\u{96}");
+    }
+
+    #[test]
+    fn htmlize_correct_c1_endash() {
+        assert_eq!(htmlize::unescape("&#x96;"), "\u{2013}");
+    }
+
+    // NUL: WHATWG → U+FFFD; `html_escape` → raw NUL.
+
+    #[test]
+    fn html_escape_wrong_nul() {
+        assert_eq!(html_escape::decode_html_entities("&#0;"), "\u{0}");
+    }
+
+    #[test]
+    fn htmlize_correct_nul() {
+        assert_eq!(htmlize::unescape("&#0;"), "\u{fffd}");
+    }
+
+    // Out-of-range (> 0x10FFFF): WHATWG → U+FFFD; `html_escape` leaves literal.
+
+    #[test]
+    fn html_escape_wrong_above_unicode_max() {
+        assert_eq!(
+            html_escape::decode_html_entities("&#x110000;"),
+            "&#x110000;",
+        );
+    }
+
+    #[test]
+    fn htmlize_correct_above_unicode_max() {
+        assert_eq!(htmlize::unescape("&#x110000;"), "\u{fffd}");
+    }
+
+    #[test]
+    fn html_escape_wrong_out_of_u32() {
+        assert_eq!(
+            html_escape::decode_html_entities("&#xffffffff;"),
+            "&#xffffffff;",
+        );
+    }
+
+    #[test]
+    fn htmlize_correct_out_of_u32() {
+        assert_eq!(htmlize::unescape("&#xffffffff;"), "\u{fffd}");
+    }
+
+    // Lone surrogates: WHATWG → U+FFFD; `html_escape` can't produce one and
+    // leaves the literal alone.
+
+    #[test]
+    fn html_escape_wrong_lone_surrogate() {
+        assert_eq!(html_escape::decode_html_entities("&#xD83D;"), "&#xD83D;");
+    }
+
+    #[test]
+    fn htmlize_correct_lone_surrogate() {
+        assert_eq!(htmlize::unescape("&#xD83D;"), "\u{fffd}");
+    }
+
+    // Noncharacters: both backends emit the codepoint per spec ("parse
+    // error, but the character is emitted"). Pinned against regression to
+    // ftfy/Python's "delete" behavior.
+
+    #[test]
+    fn html_escape_correct_noncharacter() {
+        assert_eq!(html_escape::decode_html_entities("&#xffff;"), "\u{ffff}");
+    }
+
+    #[test]
+    fn htmlize_correct_noncharacter() {
+        assert_eq!(htmlize::unescape("&#xffff;"), "\u{ffff}");
+    }
+
+    // Sanity: ASCII numeric refs and a named entity decode identically.
+
+    #[test]
+    fn both_correct_ascii() {
+        assert_eq!(html_escape::decode_html_entities("&#65;"), "A");
+        assert_eq!(htmlize::unescape("&#65;"), "A");
+    }
+
+    #[test]
+    fn both_correct_named_eacute() {
+        assert_eq!(html_escape::decode_html_entities("&eacute;"), "é");
+        assert_eq!(htmlize::unescape("&eacute;"), "é");
     }
 }
