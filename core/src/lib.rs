@@ -4,6 +4,7 @@ extern crate lazy_static;
 mod badness;
 mod chardata;
 mod fixes;
+mod html_entities;
 
 mod codecs;
 
@@ -2050,7 +2051,8 @@ mod tests {
         );
         assert_eq!(unescape_html("JEDNOCZE&SACUTE;NIE"), "JEDNOCZEŚNIE");
         assert_eq!(unescape_html("V&SCARON;ICHNI"), "VŠICHNI");
-        assert_eq!(unescape_html("&#xffff;"), "");
+        // WHATWG § 13.2.5.80: noncharacters emit the codepoint.
+        assert_eq!(unescape_html("&#xffff;"), "\u{ffff}");
         assert_eq!(unescape_html("&#xffffffff;"), "\u{fffd}");
     }
 
