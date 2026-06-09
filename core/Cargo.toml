@@ -12,10 +12,11 @@ repository.workspace = true
 encoding = { workspace = true }
 encoding_rs = { workspace = true }
 fancy-regex = { workspace = true }
-html-escape = { workspace = true }
+htmlize = { workspace = true, features = ["unescape_fast"] }
 icu = { workspace = true }
 lazy_static = { workspace = true }
 oem_cp = { workspace = true, features = ["alloc"] }
+phf = { workspace = true }
 regex = { workspace = true }
 rustc-hash = { workspace = true }
 unicode-normalization = { workspace = true }
@@ -24,3 +25,7 @@ unicode-normalization = { workspace = true }
 pretty_assertions = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+
+[build-dependencies]
+htmlize = { workspace = true, features = ["entities"] }
+phf_codegen = { workspace = true }

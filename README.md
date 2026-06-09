@@ -99,10 +99,7 @@ plsfix aims to match ftfy behavior, but a few things differ:
 - **No surrogate pass.** `fix_surrogates` is a no-op kept for ftfy compatibility — Rust strings can't hold lone surrogates, and surrogate recovery already happens during encoding repair. `remove_control_chars` strips U+FEFF.
 - **Bounded loops.** Fixed-point loops cap at 16 passes (ftfy loops unbounded); real text converges well before this.
 - **Baltic gap.** `windows-1257` is not yet a candidate codec, so some Baltic-language mojibake that ftfy fixes is left unchanged.
-- **HTML escapes.** ftfy, by way of Python's `html.unescape`, behaves a little differently.
-  - **Noncharacters** (`&#xffff;`): ftfy → `""`; we keep the codepoint.
-  - **Out-of-range** (`&#xffffff;`): ftfy → `"�"`; we leave it as literal text.
-  - **NUL** (`&#0;`): ftfy → `"�"`; we decode a real NUL that the later `remove_control_chars` pass then strips, yielding `""`.
+- **HTML noncharacter refs.** Numeric character references in the Unicode noncharacter ranges (`&#xffff;`, U+FDD0..U+FDEF, …) decode to their codepoint, following WHATWG § 13.2.5.80; ftfy (via Python's `html.unescape`) deletes them.
 
 ### Limitations (shared with ftfy)
 
