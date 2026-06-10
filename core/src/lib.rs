@@ -5,6 +5,7 @@ mod badness;
 mod chardata;
 mod fixes;
 mod html_entities;
+mod utf8;
 
 mod codecs;
 
