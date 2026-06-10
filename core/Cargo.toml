@@ -13,7 +13,7 @@ encoding = { workspace = true }
 encoding_rs = { workspace = true }
 fancy-regex = { workspace = true }
 hashify = { workspace = true }
-htmlize = { workspace = true, features = ["unescape"] }
+htmlize = { workspace = true, default-features = false, features = ["unescape_fast"] }
 icu = { workspace = true }
 lazy_static = { workspace = true }
 oem_cp = { workspace = true, features = ["alloc"] }
