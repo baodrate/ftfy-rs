@@ -368,51 +368,47 @@ pub fn decode_inconsistent_utf8(text: &str) -> Cow<str> {
 
     This is used as a transcoder within `fix_encoding`.
     */
+    let mut matches = accepted_utf8_matches(text).peekable();
+    if matches.peek().is_none() {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut last_end = 0;
+    for mat in matches {
+        let substr = mat.as_str();
+        out.push_str(&text[last_end..mat.start()]);
+        if substr.len() < text.len() && is_bad(substr) {
+            out.push_str(&fix_encoding_and_explain(substr, false, None).text);
+        } else {
+            out.push_str(substr);
+        }
+        last_end = mat.end();
+    }
+    out.push_str(&text[last_end..]);
+    Cow::Owned(out)
+}
 
-    // Reconstructs `(?<![strict])` dropped from UTF8_DETECTOR_RE. On rejection
-    // advance one char (not to `end`) so an inner valid match isn't skipped.
+/// Iterator over `UTF8_DETECTOR_RE` matches in `text` with the `(?<![strict])`
+/// lookbehind reconstructed in user code (the `regex` crate doesn't support
+/// lookarounds). On rejection the search advances one char past `start` —
+/// not to `end` — so that fancy_regex / Python `re`'s failing-lookbehind
+/// retry semantics are preserved and an inner valid match nested in a
+/// rejected one isn't skipped.
+fn accepted_utf8_matches(text: &str) -> impl Iterator<Item = regex::Match<'_>> {
     let mut search_from = 0usize;
-    let accepted = std::iter::from_fn(|| loop {
+    std::iter::from_fn(move || loop {
         let mat = UTF8_DETECTOR_RE.find_at(text, search_from)?;
         let preceding_is_strict = text[..mat.start()]
             .chars()
             .next_back()
             .is_some_and(|c| UTF8_CONTINUATION_STRICT_SET.contains(&c));
         if preceding_is_strict {
-            let advance = text[mat.start()..]
-                .chars()
-                .next()
-                .map_or(0, char::len_utf8);
-            search_from = mat.start() + advance;
+            search_from = text.ceil_char_boundary(mat.start() + 1);
             continue;
         }
         search_from = mat.end();
         return Some(mat);
-    });
-
-    let (out, last_end) = accepted.fold(
-        (None::<String>, 0usize),
-        |(out, last_end), mat| {
-            let substr = mat.as_str();
-            let replacement: Cow<str> = if substr.len() < text.len() && is_bad(substr) {
-                Cow::Owned(fix_encoding_and_explain(substr, false, None).text)
-            } else {
-                Cow::Borrowed(substr)
-            };
-            let mut owned = out.unwrap_or_else(|| String::with_capacity(text.len()));
-            owned.push_str(&text[last_end..mat.start()]);
-            owned.push_str(&replacement);
-            (Some(owned), mat.end())
-        },
-    );
-
-    match out {
-        Some(mut s) => {
-            s.push_str(&text[last_end..]);
-            Cow::Owned(s)
-        }
-        None => Cow::Borrowed(text),
-    }
+    })
 }
 
 fn _c1_fixer(mat: &regex::Captures) -> String {
