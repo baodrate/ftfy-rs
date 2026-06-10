@@ -3,6 +3,8 @@ use unicode_normalization::UnicodeNormalization;
 
 use regex::Regex;
 
+pub use crate::utf8::UTF8_CONTINUATION_STRICT_SET;
+
 use crate::codecs::sloppy::{
     Codec, CodecType, CP437, ISO_8859_2, LATIN_1, MACROMAN, SLOPPY_WINDOWS_1250,
     SLOPPY_WINDOWS_1251, SLOPPY_WINDOWS_1252, SLOPPY_WINDOWS_1253, SLOPPY_WINDOWS_1254,
@@ -348,21 +350,8 @@ lazy_static! {
     )
     .expect("Failed to compile the regex")
     };
-
-    /// Reconstructs the char class from the lookbehind dropped from UTF8_DETECTOR_RE.
-    pub static ref UTF8_CONTINUATION_STRICT_SET: rustc_hash::FxHashSet<char> = {
-        let mut set = rustc_hash::FxHashSet::default();
-        for c in '\u{80}'..='\u{bf}' {
-            set.insert(c);
-        }
-        // Skip the leading `\x80-\xbf` literal in the clue.
-        let clue = UTF8_CLUES["utf8_continuation_strict"];
-        for c in clue.chars().skip(r"\x80-\xbf".len()) {
-            set.insert(c);
-        }
-        set
-    };
 }
+
 #[cfg(test)]
 mod tests {
     use super::UTF8_CLUES;
@@ -816,5 +805,23 @@ mod tests {
             .collect();
 
         assert_eq!(ours, expected);
+    }
+
+    #[test]
+    fn test_strict_continuation_set_matches_clue() {
+        // Drift check between the build.rs-generated phf set and the
+        // `utf8_continuation_strict` clue string (which is itself pinned to
+        // ftfy by test_utf8_clues_match_ftfy). The two are independent
+        // representations of the same data — if either changes, this fires.
+        let clue = UTF8_CLUES["utf8_continuation_strict"];
+        let mut expected: std::collections::BTreeSet<char> = ('\u{80}'..='\u{bf}').collect();
+        for c in clue.chars().skip(r"\x80-\xbf".len()) {
+            expected.insert(c);
+        }
+        let actual: std::collections::BTreeSet<char> = super::UTF8_CONTINUATION_STRICT_SET
+            .iter()
+            .copied()
+            .collect();
+        assert_eq!(actual, expected);
     }
 }
