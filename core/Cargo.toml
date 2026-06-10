@@ -12,6 +12,7 @@ repository.workspace = true
 encoding = { workspace = true }
 encoding_rs = { workspace = true }
 fancy-regex = { workspace = true }
+hashify = { workspace = true }
 htmlize = { workspace = true, features = ["unescape"] }
 icu = { workspace = true }
 lazy_static = { workspace = true }
@@ -25,3 +26,6 @@ pretty_assertions = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 unicode_names2 = { workspace = true }
+
+[build-dependencies]
+htmlize = { workspace = true, default-features = false, features = ["entities"] }

@@ -1,12 +1,12 @@
 use crate::{
     badness::is_bad,
     chardata::{
-        ALTERED_UTF8_RE, C1_CONTROL_RE, CONTROL_CHARS, DOUBLE_QUOTE_RE,
-        HTML_ENTITIES_UPPER_ALIASES, HTML_ENTITY_RE, LIGATURES, LOSSY_UTF8_RE, SINGLE_QUOTE_RE,
-        UTF8_DETECTOR_RE, WIDTH_MAP,
+        ALTERED_UTF8_RE, C1_CONTROL_RE, CONTROL_CHARS, DOUBLE_QUOTE_RE, HTML_ENTITY_RE, LIGATURES,
+        LOSSY_UTF8_RE, SINGLE_QUOTE_RE, UTF8_DETECTOR_RE, WIDTH_MAP,
     },
     codecs::sloppy::{Codec, LATIN_1, SLOPPY_WINDOWS_1252},
     fix_encoding_and_explain,
+    html_entities::lookup_upper_alias,
 };
 use regex::{Regex, Replacer};
 use std::borrow::Cow;
@@ -17,11 +17,10 @@ fn _unescape_fixup(capture: &regex::Captures) -> String {
     if possible.
     */
     let text = capture.get(0).map_or("", |m| m.as_str());
-    // Check the small ALL-CAPS overlay first (~190 entries, L1-resident):
-    // on a hit we skip htmlize entirely; on a miss the probe is cheap and
-    // we fall through. The fall-through covers WHATWG named entities and
-    // § 13.2.5.80 numeric refs via `htmlize`.
-    if let Some(val) = HTML_ENTITIES_UPPER_ALIASES.get(text) {
+    // Check the compile-time ALL-CAPS overlay first (`hashify::tiny_map!`
+    // expands to a gperf-style perfect-hash `match`). Falls through to
+    // `htmlize` (WHATWG named entities + § 13.2.5.80 numeric refs).
+    if let Some(val) = lookup_upper_alias(text) {
         return val.to_string();
     }
     let unescaped = htmlize::unescape(text);

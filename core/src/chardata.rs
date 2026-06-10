@@ -105,38 +105,6 @@ lazy_static! {
 
     pub static ref HTML_ENTITY_RE: Regex = Regex::new(r"&#?[0-9A-Za-z]{1,24};").unwrap();
 
-    /// ftfy-specific ALL-CAPS aliases on top of WHATWG named entities (so
-    /// `P&EACUTE;REZ` decodes to `PÉREZ`). Derived from [`htmlize::ENTITIES`]
-    /// by uppercasing every all-lowercase `;`-terminated entry, skipping
-    /// keys that already exist as a real entity (so `&dd;`→ⅆ does not
-    /// shadow the real `&DD;`→ⅅ).
-    pub static ref HTML_ENTITIES_UPPER_ALIASES: FxHashMap<String, String> = {
-        let mut aliases: FxHashMap<String, String> = FxHashMap::default();
-        for (name_bytes, val_bytes) in htmlize::ENTITIES.entries() {
-            let name = match std::str::from_utf8(name_bytes) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-            if !name.ends_with(';') {
-                continue;
-            }
-            let bare = &name[1..name.len() - 1];
-            if !bare.chars().all(|c| !c.is_alphabetic() || c.is_lowercase()) {
-                continue;
-            }
-            let upper_key = format!("&{};", bare.to_uppercase());
-            if htmlize::ENTITIES.contains_key(upper_key.as_bytes()) {
-                continue;
-            }
-            let val = match std::str::from_utf8(val_bytes) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-            aliases.insert(upper_key, val.to_uppercase());
-        }
-        aliases
-    };
-
     pub static ref CONTROL_CHARS: FxHashSet<u32> ={
         /*
         Build a translate mapping that strips likely-unintended control characters.

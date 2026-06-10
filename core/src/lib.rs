@@ -4,6 +4,7 @@ extern crate lazy_static;
 mod badness;
 mod chardata;
 mod fixes;
+mod html_entities;
 
 mod codecs;
 
