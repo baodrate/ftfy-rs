@@ -46,6 +46,17 @@ pub enum Normalization {
 
 static MAX_ATTEMPTS: i32 = 16;
 
+// ICU normalizers internally hold `Rc`s into their compiled data, so they are
+// not `Sync` and can't live in a `lazy_static!`. Cache them per-thread instead:
+// construction loads sizeable data tables, and `fix_and_explain`'s outer loop
+// can invoke the normalizer up to `MAX_ATTEMPTS` times per segment.
+thread_local! {
+    static NFC_NORMALIZER: ComposingNormalizer = const { ComposingNormalizer::new_nfc() };
+    static NFKC_NORMALIZER: ComposingNormalizer = const { ComposingNormalizer::new_nfkc() };
+    static NFD_NORMALIZER: DecomposingNormalizer = const { DecomposingNormalizer::new_nfd() };
+    static NFKD_NORMALIZER: DecomposingNormalizer = const { DecomposingNormalizer::new_nfkd() };
+}
+
 /*
 A TextFixerConfig object stores configuration options for plsfix.
 
@@ -482,10 +493,10 @@ pub fn fix_and_explain(
         let temp = if let Some(normalization) = &config.normalization {
             apply_step(
                 |t| match normalization {
-                    Normalization::NFC => ComposingNormalizer::new_nfc().normalize(t).into(),
-                    Normalization::NFD => DecomposingNormalizer::new_nfd().normalize(t).into(),
-                    Normalization::NFKD => DecomposingNormalizer::new_nfkd().normalize(t).into(),
-                    Normalization::NFKC => ComposingNormalizer::new_nfkc().normalize(t).into(),
+                    Normalization::NFC => NFC_NORMALIZER.with(|n| n.normalize(t).into()),
+                    Normalization::NFD => NFD_NORMALIZER.with(|n| n.normalize(t).into()),
+                    Normalization::NFKD => NFKD_NORMALIZER.with(|n| n.normalize(t).into()),
+                    Normalization::NFKC => NFKC_NORMALIZER.with(|n| n.normalize(t).into()),
                 },
                 &temp,
                 ExplanationStep {
