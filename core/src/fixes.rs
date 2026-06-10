@@ -1,8 +1,9 @@
 use crate::{
     badness::is_bad,
     chardata::{
-        ALTERED_UTF8_RE, C1_CONTROL_RE, CONTROL_CHARS, DOUBLE_QUOTE_RE, HTML_ENTITIES,
-        HTML_ENTITY_RE, LIGATURES, LOSSY_UTF8_RE, SINGLE_QUOTE_RE, UTF8_DETECTOR_RE, WIDTH_MAP,
+        ALTERED_UTF8_RE, C1_CONTROL_RE, CONTROL_CHARS, DOUBLE_QUOTE_RE,
+        HTML_ENTITIES_UPPER_ALIASES, HTML_ENTITY_RE, LIGATURES, LOSSY_UTF8_RE, SINGLE_QUOTE_RE,
+        UTF8_DETECTOR_RE, WIDTH_MAP,
     },
     codecs::sloppy::{Codec, LATIN_1, SLOPPY_WINDOWS_1252},
     fix_encoding_and_explain,
@@ -16,24 +17,21 @@ fn _unescape_fixup(capture: &regex::Captures) -> String {
     if possible.
     */
     let text = capture.get(0).map_or("", |m| m.as_str());
-    // `HTML_ENTITIES` carries the ~190 ALL-CAPS aliases that ftfy adds on top
-    // of the WHATWG named set (e.g. `&EACUTE;` → `É`); not in `htmlize`.
-    if let Some(val) = HTML_ENTITIES.get(text) {
-        return val.to_string();
-    }
-    if text.starts_with("&#") {
-        // Defer to `htmlize` for WHATWG § 13.2.5.80: C1 remap, NUL /
-        // > 0x10FFFF / surrogate → U+FFFD, noncharacter → emit codepoint.
-        // `backend_divergence` tests pin the cases where this differs from
-        // `html_escape`.
-        let unescaped = htmlize::unescape(text);
+    // Try `htmlize` first (full WHATWG named set + § 13.2.5.80 numeric
+    // refs). Fall through to the ALL-CAPS overlay only when htmlize leaves
+    // the input unchanged — those are ftfy's uppercase aliases like
+    // `&EACUTE;` → `É` that aren't in the WHATWG set.
+    let unescaped = htmlize::unescape(text);
+    if unescaped.as_ref() != text {
         if unescaped.contains(';') {
             return text.to_string();
         }
-        unescaped.to_string()
-    } else {
-        text.to_string()
+        return unescaped.into_owned();
     }
+    if let Some(val) = HTML_ENTITIES_UPPER_ALIASES.get(text) {
+        return val.to_string();
+    }
+    text.to_string()
 }
 
 pub fn unescape_html(text: &str) -> Cow<str> {
@@ -942,75 +940,5 @@ mod tests {
     fn test_unescape_html_c1_self_mapped() {
         // 0x9D has no HTML5 replacement → U+009D.
         assert_eq!(unescape_html("&#x9d;"), "\u{9d}");
-    }
-}
-
-/// Micro-benchmark for the HTML entity decode path. Run with
-/// `cargo test --release -- --ignored bench_unescape_html --nocapture`.
-/// Reports per-call median time on three representative corpora so we can
-/// measure the cost of switching `_unescape_fixup`'s backend.
-#[cfg(test)]
-mod bench {
-    use super::unescape_html;
-    use std::time::Instant;
-
-    fn measure(name: &str, input: &str, iters: usize) {
-        // warmup
-        for _ in 0..(iters / 10).max(1) {
-            std::hint::black_box(unescape_html(std::hint::black_box(input)));
-        }
-        let mut samples = Vec::with_capacity(11);
-        for _ in 0..11 {
-            let start = Instant::now();
-            for _ in 0..iters {
-                std::hint::black_box(unescape_html(std::hint::black_box(input)));
-            }
-            samples.push(start.elapsed());
-        }
-        samples.sort();
-        let median = samples[samples.len() / 2];
-        let per_iter = median / (iters as u32);
-        println!(
-            "  {:<30} {:>6} B  {:>10.2?}/iter  ({} iters, median over {} runs)",
-            name,
-            input.len(),
-            per_iter,
-            iters,
-            samples.len(),
-        );
-    }
-
-    #[test]
-    #[ignore]
-    fn bench_unescape_html() {
-        let plain = "Lorem ipsum dolor sit amet, consectetur adipiscing \
-            elit, sed do eiusmod tempor incididunt ut labore et dolore \
-            magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation."
-            .to_string();
-        let plain_long = plain.repeat(50);
-
-        let named = "P&eacute;rez wrote &lt;hello&gt; &amp; &quot;world&quot; \
-            &ndash; with &mdash; entities &ldquo;everywhere&rdquo;. \
-            &copy; 2026 &middot; &nbsp;&nbsp;&nbsp; &hellip;"
-            .to_string();
-        let named_long = named.repeat(50);
-
-        let numeric = "Caf&#233; au lait &mdash; &#x2014; en&#x2013;dash \
-            &#65; ASCII &#x80; euro &#x9d; self-mapped &#xffff; nonchar \
-            &#x110000; out-of-range &#0; nul &#xD83D; surrogate"
-            .to_string();
-        let numeric_long = numeric.repeat(50);
-
-        println!();
-        println!("unescape_html micro-benchmark:");
-        println!("  (per-iter wall time, smaller is better)");
-        println!();
-
-        measure("plain (no entities, short)", &plain, 20_000);
-        measure("plain (no entities, long)", &plain_long, 1_000);
-        measure("named entities (short)", &named, 20_000);
-        measure("named entities (long)", &named_long, 1_000);
-        measure("numeric refs (short)", &numeric, 20_000);
-        measure("numeric refs (long)", &numeric_long, 1_000);
     }
 }
