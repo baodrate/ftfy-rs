@@ -10,12 +10,16 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   gungraun:
     name: gungraun (vs base)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      GUNGRAUN_COLOR: never
+      CARGO_TERM_COLOR: never
     steps:
       - name: Checkout PR (with base history)
         uses: actions/checkout@v4
@@ -59,16 +63,72 @@ jobs:
           git checkout "${{ steps.refs.outputs.head }}"
           if [ "${{ steps.baseline.outcome }}" = "success" ]; then
             cargo bench --manifest-path benchmarks/Cargo.toml --bench fix_text -- \
-              --baseline=base | tee bench-output.txt
+              --baseline=base --save-summary=json | tee bench-output.txt
           else
             echo "No baseline available; running PR benchmarks standalone." | tee bench-output.txt
-            cargo bench --manifest-path benchmarks/Cargo.toml --bench fix_text \
-              | tee -a bench-output.txt
+            cargo bench --manifest-path benchmarks/Cargo.toml --bench fix_text -- \
+              --save-summary=json | tee -a bench-output.txt
           fi
 
-      - name: Publish results to job summary
+      - name: Build summary table and comment body
         if: always() && hashFiles('bench-output.txt') != ''
         run: |
+          set -euo pipefail
+
+          # `benchmarks` is a member of the root Cargo workspace, so gungraun
+          # writes its summaries under the workspace target at the repo root
+          # (not under benchmarks/target/).
+          mapfile -t summaries < <(find target/gungraun -type f -name summary.json 2>/dev/null | sort)
+
+          # jq program: per gungraun's v6 schema, each summary file is a
+          # BenchmarkSummary with metrics at
+          #   profiles[i].summaries.parts[j].metrics_summary.Callgrind
+          # — a MetricsSummary keyed by metric name (Ir, EstimatedCycles, …).
+          # Each metric value is wrapped: `{"Int": 1234}` or `{"Float": 1.2}`.
+          # For EitherOrBoth.Both the gungraun convention is "left is `new`,
+          # right is `old`" — so Both[0] is the PR-head value and Both[1] is
+          # the baseline. diff_pct is a stringified percentage value (e.g.
+          # "-12.34" → -12.34%), serialized as a string to preserve `inf`.
+          read -r -d '' JQ_PROG <<'JQ' || true
+          def unwrap(v): if v == null then null else (v.Int // v.Float // null) end;
+          def new_value(m):
+            m.metrics
+            | unwrap(.Both[0] // .Left // .Right // null);
+          def base_value(m):
+            m.metrics
+            | unwrap(.Both[1] // .Right // null);
+          def fmt_num(n):
+            if n == null then "—" else (n|tostring) end;
+          def fmt_pct(s):
+            if s == null then "—"
+            elif (s | tostring | test("inf"; "i")) then (s | tostring)
+            else
+              try (
+                (s | tonumber) as $n
+                | (if $n > 0 then "+" else "" end)
+                  + (($n * 100 | round) / 100 | tostring)
+                  + "%"
+              ) catch (s | tostring)
+            end;
+          . as $b
+          | ($b.profiles[0].summaries.parts[0].metrics_summary.Callgrind // {}) as $ms
+          | {
+              name: (
+                ($b.module_path // "")
+                + (if (($b.id // "") | tostring) != "" then " " + ($b.id|tostring) else "" end)
+              ),
+              ir_new:     fmt_num(new_value($ms.Ir // {})),
+              ir_base:    fmt_num(base_value($ms.Ir // {})),
+              ir_pct:     fmt_pct((($ms.Ir // {}).diffs // {}).diff_pct),
+              cy_new:     fmt_num(new_value($ms.EstimatedCycles // {})),
+              cy_base:    fmt_num(base_value($ms.EstimatedCycles // {})),
+              cy_pct:     fmt_pct((($ms.EstimatedCycles // {}).diffs // {}).diff_pct),
+            }
+          | "| `" + .name + "` | "
+            + .ir_new + " | " + .ir_base + " | " + .ir_pct + " | "
+            + .cy_new + " | " + .cy_base + " | " + .cy_pct + " |"
+          JQ
+
           {
             if [ "${{ steps.baseline.outcome }}" = "success" ]; then
               echo "## gungraun benchmark — PR vs \`${{ steps.refs.outputs.base }}\`"
@@ -76,7 +136,32 @@ jobs:
               echo "## gungraun benchmark (PR head only — no baseline)"
             fi
             echo
+            if [ "${#summaries[@]}" -gt 0 ]; then
+              echo "| Benchmark | Ir (PR) | Ir (base) | ΔIr | Cycles (PR) | Cycles (base) | ΔCycles |"
+              echo "|---|---:|---:|---:|---:|---:|---:|"
+              for f in "${summaries[@]}"; do
+                jq -r "$JQ_PROG" "$f"
+              done
+            else
+              echo "_No \`summary.json\` files found under \`target/gungraun/\`._"
+            fi
+            echo
+            echo "<details><summary>Full gungraun output</summary>"
+            echo
             echo '```'
             cat bench-output.txt
             echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo
+            echo "</details>"
+          } > bench-body.md
+
+      - name: Publish results to job summary
+        if: always() && hashFiles('bench-body.md') != ''
+        run: cat bench-body.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post (or update) results comment on PR
+        if: always() && github.event_name == 'pull_request' && hashFiles('bench-body.md') != ''
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: gungraun-benchmark
+          path: bench-body.md
