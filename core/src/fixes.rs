@@ -1,11 +1,11 @@
 use crate::{
     badness::is_bad,
     chardata::{
-        is_control_char, lookup_ligature, lookup_width, ALTERED_UTF8_RE, C1_CONTROL_RE,
-        DOUBLE_QUOTE_RE, HTML_ENTITY_RE, LOSSY_UTF8_RE, SINGLE_QUOTE_RE, UPPER_ALIASES,
+        is_control_char, lookup_ligature, lookup_width, ALTERED_UTF8_RE, DOUBLE_QUOTE_RE,
+        HTML_ENTITY_RE, LOSSY_UTF8_RE, SINGLE_QUOTE_RE, UPPER_ALIASES,
         UTF8_CONTINUATION_STRICT_SET, UTF8_DETECTOR_RE,
     },
-    codecs::sloppy::{Codec, LATIN_1, SLOPPY_WINDOWS_1252},
+    codecs::sloppy::{Codec, SLOPPY_WINDOWS_1252},
     fix_encoding_and_explain,
 };
 use regex::{Regex, Replacer};
@@ -405,23 +405,44 @@ fn accepted_utf8_matches(text: &str) -> impl Iterator<Item = regex::Match<'_>> {
     })
 }
 
-fn _c1_fixer(mat: &regex::Captures) -> String {
-    let mat = mat.get(0).unwrap().as_str().to_string();
-
-    let encoded = LATIN_1.encode(&mat);
-
-    match encoded {
-        Ok(byts) => SLOPPY_WINDOWS_1252.decode(&byts),
-        Err(_) => mat,
-    }
-}
-
 pub fn fix_c1_controls(text: &str) -> Cow<str> {
     /*
     If text still contains C1 control characters, treat them as their
     Windows-1252 equivalents. This matches what Web browsers do.
     */
-    C1_CONTROL_RE.replace_all(text, |caps: &regex::Captures| _c1_fixer(caps))
+    // U+0080..U+009F encodes as `\xC2 [\x80-\x9F]` in UTF-8; memchr scans for
+    // the lead byte and we verify the second. Avoids the regex engine setup
+    // cost on every call — most calls find nothing.
+    let bytes = text.as_bytes();
+    let mut iter = memchr::memchr_iter(0xC2, bytes);
+    let accepted = std::iter::from_fn(|| {
+        for idx in iter.by_ref() {
+            if let Some(&b) = bytes.get(idx + 1) {
+                if (0x80..=0x9F).contains(&b) {
+                    return Some((idx, b));
+                }
+            }
+        }
+        None
+    });
+
+    let (out, last_end) = accepted.fold((None::<String>, 0usize), |(out, last_end), (idx, b)| {
+        // Win-1252 decode of a single byte in 0x80..=0x9F — either remaps
+        // to its assigned character or stays as the same C1 codepoint.
+        let replacement = SLOPPY_WINDOWS_1252.decode(&[b]);
+        let mut owned = out.unwrap_or_else(|| String::with_capacity(text.len()));
+        owned.push_str(&text[last_end..idx]);
+        owned.push_str(&replacement);
+        (Some(owned), idx + 2)
+    });
+
+    match out {
+        Some(mut s) => {
+            s.push_str(&text[last_end..]);
+            Cow::Owned(s)
+        }
+        None => Cow::Borrowed(text),
+    }
 }
 
 #[cfg(test)]

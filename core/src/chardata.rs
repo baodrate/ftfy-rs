@@ -252,13 +252,6 @@ lazy_static! {
     .unwrap();
 
     /*
-    This regex matches C1 control characters, which occupy some of the positions
-    in the Latin-1 character map that Windows assigns to other characters instead.
-    */
-    pub static ref C1_CONTROL_RE: regex::Regex =
-        regex::Regex::new(r"[\x80-\x9f]").unwrap();
-
-    /*
     This regex uses UTF8_CLUES to find sequences of likely mojibake.
     It matches them with + so that several adjacent UTF-8-looking sequences
     get coalesced into one, allowing them to be fixed more efficiently
