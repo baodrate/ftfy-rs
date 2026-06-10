@@ -218,8 +218,8 @@ lazy_static! {
     This regex matches C1 control characters, which occupy some of the positions
     in the Latin-1 character map that Windows assigns to other characters instead.
     */
-    pub static ref C1_CONTROL_RE: fancy_regex::Regex =
-        fancy_regex::Regex::new(r"[\x80-\x9f]").unwrap();
+    pub static ref C1_CONTROL_RE: regex::Regex =
+        regex::Regex::new(r"[\x80-\x9f]").unwrap();
 
     /*
     A translate mapping that breaks ligatures made of Latin letters. While
@@ -327,11 +327,12 @@ lazy_static! {
     lowercase letter, will prevent some cases of inconsistent UTF-8 from being
     fixed when they don't see it.
     */
-    pub static ref UTF8_DETECTOR_RE: fancy_regex::Regex = {
-        fancy_regex::Regex::new(
+    // Lookbehind `(?<![strict])` lives in `decode_inconsistent_utf8` instead —
+    // the `regex` crate doesn't support lookarounds.
+    pub static ref UTF8_DETECTOR_RE: regex::Regex = {
+        regex::Regex::new(
         &format!(
             r"(?x)
-            (?<! [{utf8_continuation_strict}])
             (
                 [{utf8_first_of_2}] [{utf8_continuation}]
                 |
@@ -339,7 +340,6 @@ lazy_static! {
                 |
                 [{utf8_first_of_4}] [{utf8_continuation}]{{3}}
             )+",
-            utf8_continuation_strict = UTF8_CLUES["utf8_continuation_strict"],
             utf8_first_of_2 = UTF8_CLUES["utf8_first_of_2"],
             utf8_first_of_3 = UTF8_CLUES["utf8_first_of_3"],
             utf8_first_of_4 = UTF8_CLUES["utf8_first_of_4"],
@@ -347,6 +347,20 @@ lazy_static! {
         ),
     )
     .expect("Failed to compile the regex")
+    };
+
+    /// Reconstructs the char class from the lookbehind dropped from UTF8_DETECTOR_RE.
+    pub static ref UTF8_CONTINUATION_STRICT_SET: rustc_hash::FxHashSet<char> = {
+        let mut set = rustc_hash::FxHashSet::default();
+        for c in '\u{80}'..='\u{bf}' {
+            set.insert(c);
+        }
+        // Skip the leading `\x80-\xbf` literal in the clue.
+        let clue = UTF8_CLUES["utf8_continuation_strict"];
+        for c in clue.chars().skip(r"\x80-\xbf".len()) {
+            set.insert(c);
+        }
+        set
     };
 }
 #[cfg(test)]

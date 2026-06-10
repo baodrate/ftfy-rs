@@ -11,7 +11,6 @@ repository.workspace = true
 [dependencies]
 encoding = { workspace = true }
 encoding_rs = { workspace = true }
-fancy-regex = { workspace = true }
 hashify = { workspace = true }
 htmlize = { workspace = true, default-features = false, features = ["unescape_fast"] }
 icu = { workspace = true }

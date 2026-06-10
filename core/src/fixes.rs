@@ -2,7 +2,7 @@ use crate::{
     badness::is_bad,
     chardata::{
         ALTERED_UTF8_RE, C1_CONTROL_RE, CONTROL_CHARS, DOUBLE_QUOTE_RE, HTML_ENTITY_RE, LIGATURES,
-        LOSSY_UTF8_RE, SINGLE_QUOTE_RE, UTF8_DETECTOR_RE, WIDTH_MAP,
+        LOSSY_UTF8_RE, SINGLE_QUOTE_RE, UTF8_CONTINUATION_STRICT_SET, UTF8_DETECTOR_RE, WIDTH_MAP,
     },
     codecs::sloppy::{Codec, LATIN_1, SLOPPY_WINDOWS_1252},
     fix_encoding_and_explain,
@@ -369,21 +369,53 @@ pub fn decode_inconsistent_utf8(text: &str) -> Cow<str> {
     This is used as a transcoder within `fix_encoding`.
     */
 
-    let result = UTF8_DETECTOR_RE.replace_all(&text, |mat: &fancy_regex::Captures| {
-        let substr = mat.get(0).unwrap().as_str();
-
-        if substr.len() < text.len() && is_bad(&substr) {
-            let fixed = fix_encoding_and_explain(&substr, false, None);
-            fixed.text
-        } else {
-            substr.to_string()
+    // Reconstructs `(?<![strict])` dropped from UTF8_DETECTOR_RE. On rejection
+    // advance one char (not to `end`) so an inner valid match isn't skipped.
+    let mut search_from = 0usize;
+    let accepted = std::iter::from_fn(|| loop {
+        let mat = UTF8_DETECTOR_RE.find_at(text, search_from)?;
+        let preceding_is_strict = text[..mat.start()]
+            .chars()
+            .next_back()
+            .is_some_and(|c| UTF8_CONTINUATION_STRICT_SET.contains(&c));
+        if preceding_is_strict {
+            let advance = text[mat.start()..]
+                .chars()
+                .next()
+                .map_or(0, char::len_utf8);
+            search_from = mat.start() + advance;
+            continue;
         }
+        search_from = mat.end();
+        return Some(mat);
     });
 
-    result
+    let (out, last_end) = accepted.fold(
+        (None::<String>, 0usize),
+        |(out, last_end), mat| {
+            let substr = mat.as_str();
+            let replacement: Cow<str> = if substr.len() < text.len() && is_bad(substr) {
+                Cow::Owned(fix_encoding_and_explain(substr, false, None).text)
+            } else {
+                Cow::Borrowed(substr)
+            };
+            let mut owned = out.unwrap_or_else(|| String::with_capacity(text.len()));
+            owned.push_str(&text[last_end..mat.start()]);
+            owned.push_str(&replacement);
+            (Some(owned), mat.end())
+        },
+    );
+
+    match out {
+        Some(mut s) => {
+            s.push_str(&text[last_end..]);
+            Cow::Owned(s)
+        }
+        None => Cow::Borrowed(text),
+    }
 }
 
-fn _c1_fixer(mat: &fancy_regex::Captures) -> String {
+fn _c1_fixer(mat: &regex::Captures) -> String {
     let mat = mat.get(0).unwrap().as_str().to_string();
 
     let encoded = LATIN_1.encode(&mat);
@@ -399,7 +431,7 @@ pub fn fix_c1_controls(text: &str) -> Cow<str> {
     If text still contains C1 control characters, treat them as their
     Windows-1252 equivalents. This matches what Web browsers do.
     */
-    C1_CONTROL_RE.replace_all(text, |caps: &fancy_regex::Captures| _c1_fixer(&caps))
+    C1_CONTROL_RE.replace_all(text, |caps: &regex::Captures| _c1_fixer(caps))
 }
 
 #[cfg(test)]
