@@ -17,19 +17,19 @@ fn _unescape_fixup(capture: &regex::Captures) -> String {
     if possible.
     */
     let text = capture.get(0).map_or("", |m| m.as_str());
-    // Try `htmlize` first (full WHATWG named set + § 13.2.5.80 numeric
-    // refs). Fall through to the ALL-CAPS overlay only when htmlize leaves
-    // the input unchanged — those are ftfy's uppercase aliases like
-    // `&EACUTE;` → `É` that aren't in the WHATWG set.
+    // Check the small ALL-CAPS overlay first (~190 entries, L1-resident):
+    // on a hit we skip htmlize entirely; on a miss the probe is cheap and
+    // we fall through. The fall-through covers WHATWG named entities and
+    // § 13.2.5.80 numeric refs via `htmlize`.
+    if let Some(val) = HTML_ENTITIES_UPPER_ALIASES.get(text) {
+        return val.to_string();
+    }
     let unescaped = htmlize::unescape(text);
     if unescaped.as_ref() != text {
         if unescaped.contains(';') {
             return text.to_string();
         }
         return unescaped.into_owned();
-    }
-    if let Some(val) = HTML_ENTITIES_UPPER_ALIASES.get(text) {
-        return val.to_string();
     }
     text.to_string()
 }
