@@ -582,7 +582,7 @@ mod tests {
     fn s(name: &str) -> String {
         let c = get_char(name);
         assert!(c.is_whitespace());
-        format!("\\u{{{:x}}}", c as u32)
+        c.escape_unicode().collect()
     }
     /// A character-class fragment for the inclusive range between two named chars.
     fn range(lo: &str, hi: &str) -> String {

@@ -299,8 +299,8 @@ lazy_static! {
         // (Other leading bytes correspond only to unassigned codepoints)
         m.insert("utf8_first_of_4", "đðğóšπσру");
         // Letters that decode to 0x80 - 0xBF in a Latin-1-like encoding,
-        // including a space standing in for 0xA0
-        m.insert("utf8_continuation", r"\x80-\xbf ĄÆĽŁØŖŚŠŞŤŸŹŽŻŒąæƒľłøŗśšşťźžżœˆˇ˘˛˜˝΄΅ΆΈΉΊΌΎΏЁЂЃЄЅІЇЈЉЊЋЌЎЏёђѓєѕіїјљњћќўџҐґ–—―‘’‚“”„†‡•…‰‹›€№™");
+        // including a space (`\u{20}`) standing in for 0xA0
+        m.insert("utf8_continuation", r"\x80-\xbf\u{20}ĄÆĽŁØŖŚŠŞŤŸŹŽŻŒąæƒľłøŗśšşťźžżœˆˇ˘˛˜˝΄΅ΆΈΉΊΌΎΏЁЂЃЄЅІЇЈЉЊЋЌЎЏёђѓєѕіїјљњћќўџҐґ–—―‘’‚“”„†‡•…‰‹›€№™");
         // Letters that decode to 0x80 - 0xBF in a Latin-1-like encoding,
         // and don't usually stand for themselves when adjacent to mojibake.
         // This excludes spaces, dashes, 'bullet', quotation marks, and ellipses.
@@ -330,21 +330,21 @@ lazy_static! {
     pub static ref UTF8_DETECTOR_RE: fancy_regex::Regex = {
         fancy_regex::Regex::new(
         &format!(
-            r"(?<![{utf8_continuation_strict}])
-(
-[{utf8_first_of_2}][{utf8_continuation}]
-|
-[{utf8_first_of_3}][{utf8_continuation}]{{2}}
-|
-[{utf8_first_of_4}][{utf8_continuation}]{{3}}
-)+",
+            r"(?x)
+            (?<! [{utf8_continuation_strict}])
+            (
+                [{utf8_first_of_2}] [{utf8_continuation}]
+                |
+                [{utf8_first_of_3}] [{utf8_continuation}]{{2}}
+                |
+                [{utf8_first_of_4}] [{utf8_continuation}]{{3}}
+            )+",
             utf8_continuation_strict = UTF8_CLUES["utf8_continuation_strict"],
             utf8_first_of_2 = UTF8_CLUES["utf8_first_of_2"],
             utf8_first_of_3 = UTF8_CLUES["utf8_first_of_3"],
             utf8_first_of_4 = UTF8_CLUES["utf8_first_of_4"],
             utf8_continuation = UTF8_CLUES["utf8_continuation"],
-        )
-        .replace("\n", ""),
+        ),
     )
     .expect("Failed to compile the regex")
     };
@@ -356,10 +356,16 @@ mod tests {
 
     /// Look up a character by its Unicode name (how ftfy spells its clues),
     /// mirroring python's `\N{...}` escape.
+    fn get_char(name: &str) -> char {
+        unicode_names2::character(name).unwrap_or_else(|| panic!("unknown Unicode name {name:?}"))
+    }
     fn c(name: &str) -> String {
-        unicode_names2::character(name)
-            .unwrap_or_else(|| panic!("unknown Unicode name {name:?}"))
-            .into()
+        get_char(name).into()
+    }
+    fn s(name: &str) -> String {
+        let c = get_char(name);
+        assert!(c.is_whitespace());
+        c.escape_unicode().collect()
     }
 
     /// Verify our UTF8_CLUES matches ftfy's exactly, character for character.
@@ -596,7 +602,7 @@ mod tests {
                 "utf8_continuation",
                 vec![
                     r"\x80-\xbf".to_string(),
-                    c("SPACE"), // modification of latin-1:A0, NO-BREAK SPACE
+                    s("SPACE"), // modification of latin-1:A0, NO-BREAK SPACE
                     c("LATIN CAPITAL LETTER A WITH OGONEK"), // windows-1250:A5
                     c("LATIN CAPITAL LETTER AE"), // windows-1257:AF
                     c("LATIN CAPITAL LETTER L WITH CARON"), // windows-1250:BC
