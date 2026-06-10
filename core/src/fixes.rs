@@ -972,4 +972,162 @@ mod tests {
         // 0x9D has no HTML5 replacement → U+009D.
         assert_eq!(unescape_html("&#x9d;"), "\u{9d}");
     }
+
+    #[test]
+    fn test_strict_continuation_set_includes_byte_range() {
+        assert!(UTF8_CONTINUATION_STRICT_SET.contains(&'\u{80}'));
+        assert!(UTF8_CONTINUATION_STRICT_SET.contains(&'\u{a0}'));
+        assert!(UTF8_CONTINUATION_STRICT_SET.contains(&'\u{b7}'));
+        assert!(UTF8_CONTINUATION_STRICT_SET.contains(&'\u{bf}'));
+    }
+
+    #[test]
+    fn test_strict_continuation_set_includes_explicit_chars() {
+        // Sentinels from each region of the clue's explicit-char tail; if the
+        // skip-the-`\x80-\xbf`-literal arithmetic miscounts, one flips.
+        assert!(UTF8_CONTINUATION_STRICT_SET.contains(&'Ą'));
+        assert!(UTF8_CONTINUATION_STRICT_SET.contains(&'Œ'));
+        assert!(UTF8_CONTINUATION_STRICT_SET.contains(&'Ώ'));
+        assert!(UTF8_CONTINUATION_STRICT_SET.contains(&'Ґ'));
+        assert!(UTF8_CONTINUATION_STRICT_SET.contains(&'€'));
+        assert!(UTF8_CONTINUATION_STRICT_SET.contains(&'™'));
+    }
+
+    #[test]
+    fn test_strict_continuation_set_excludes_nonstrict_continuation_chars() {
+        // In `utf8_continuation` but not `_strict` — must stay out so they
+        // don't block mojibake matches.
+        assert!(!UTF8_CONTINUATION_STRICT_SET.contains(&' '));
+        assert!(!UTF8_CONTINUATION_STRICT_SET.contains(&'—'));
+        assert!(!UTF8_CONTINUATION_STRICT_SET.contains(&'‘'));
+        assert!(!UTF8_CONTINUATION_STRICT_SET.contains(&'”'));
+        assert!(!UTF8_CONTINUATION_STRICT_SET.contains(&'•'));
+        assert!(!UTF8_CONTINUATION_STRICT_SET.contains(&'…'));
+    }
+
+    #[test]
+    fn test_strict_continuation_set_excludes_ascii_and_unrelated_chars() {
+        assert!(!UTF8_CONTINUATION_STRICT_SET.contains(&'a'));
+        assert!(!UTF8_CONTINUATION_STRICT_SET.contains(&'0'));
+        assert!(!UTF8_CONTINUATION_STRICT_SET.contains(&'\u{7f}'));
+        assert!(!UTF8_CONTINUATION_STRICT_SET.contains(&'\u{c0}'));
+        // first_of_2 chars must never be strict, else two valid groups self-block.
+        assert!(!UTF8_CONTINUATION_STRICT_SET.contains(&'Ã'));
+        assert!(!UTF8_CONTINUATION_STRICT_SET.contains(&'Â'));
+    }
+
+    #[test]
+    fn test_utf8_detector_re_finds_basic_mojibake() {
+        let m = UTF8_DETECTOR_RE.find("Ã©").expect("should match");
+        assert_eq!(m.as_str(), "Ã©");
+        assert_eq!(m.start(), 0);
+    }
+
+    #[test]
+    fn test_utf8_detector_re_greedy_plus_coalesces_adjacent_groups() {
+        let m = UTF8_DETECTOR_RE.find("Ã©Ã¨").expect("should match");
+        assert_eq!(m.as_str(), "Ã©Ã¨");
+    }
+
+    #[test]
+    fn test_utf8_detector_re_ignores_plain_ascii() {
+        assert!(UTF8_DETECTOR_RE.find("plain ascii text").is_none());
+    }
+
+    #[test]
+    fn test_decode_inconsistent_utf8_passthrough_empty() {
+        assert_eq!(decode_inconsistent_utf8(""), "");
+    }
+
+    #[test]
+    fn test_decode_inconsistent_utf8_passthrough_ascii() {
+        let s = "no mojibake here";
+        let out = decode_inconsistent_utf8(s);
+        assert!(matches!(out, Cow::Borrowed(_)));
+        assert_eq!(out, s);
+    }
+
+    #[test]
+    fn test_decode_inconsistent_utf8_match_at_start_of_string() {
+        assert_eq!(decode_inconsistent_utf8("Ã©foo"), "éfoo");
+    }
+
+    #[test]
+    fn test_decode_inconsistent_utf8_preceded_by_ascii_accepts() {
+        assert_eq!(decode_inconsistent_utf8("foo Ã©"), "foo é");
+    }
+
+    #[test]
+    fn test_decode_inconsistent_utf8_preceded_by_strict_byte_range_rejects() {
+        let input = "\u{a0}Ã©";
+        assert_eq!(decode_inconsistent_utf8(input), input);
+    }
+
+    #[test]
+    fn test_decode_inconsistent_utf8_preceded_by_strict_multibyte_rejects() {
+        // Ą is 2 bytes — exercises chars().next_back() with non-ASCII.
+        let input = "ĄÃ©";
+        assert_eq!(decode_inconsistent_utf8(input), input);
+    }
+
+    #[test]
+    fn test_decode_inconsistent_utf8_preceded_by_nonstrict_continuation_accepts() {
+        assert_eq!(decode_inconsistent_utf8("—Ã©"), "—é");
+        assert_eq!(decode_inconsistent_utf8("\u{2018}Ã©"), "\u{2018}é");
+    }
+
+    #[test]
+    fn test_decode_inconsistent_utf8_retry_finds_inner_match_after_rejection() {
+        // Outer greedy match "Â—Ã©" is rejected (preceded by ·). A naive
+        // `search_from = end` would miss the inner "Ã©"; the one-char retry
+        // finds it, preceded by — (continuation but not strict).
+        assert_eq!(decode_inconsistent_utf8("·Â—Ã©"), "·Â—é");
+    }
+
+    #[test]
+    fn test_decode_inconsistent_utf8_multiple_spans_mixed_acceptance() {
+        let input = "\u{a0}Ã© foo Ã©bar";
+        assert_eq!(decode_inconsistent_utf8(input), "\u{a0}Ã© foo ébar");
+    }
+
+    #[test]
+    fn test_decode_inconsistent_utf8_match_at_end_of_string() {
+        assert_eq!(decode_inconsistent_utf8("foo Ã©"), "foo é");
+    }
+
+    #[test]
+    fn test_decode_inconsistent_utf8_rejection_then_no_more_matches() {
+        let input = "\u{a0}Ã©";
+        let out = decode_inconsistent_utf8(input);
+        assert!(matches!(out, Cow::Borrowed(_)));
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn test_fix_c1_controls_remaps_euro() {
+        assert_eq!(fix_c1_controls("price: \u{80}9.99"), "price: €9.99");
+    }
+
+    #[test]
+    fn test_fix_c1_controls_remaps_curly_quotes() {
+        assert_eq!(
+            fix_c1_controls("\u{93}hello\u{94}"),
+            "\u{201c}hello\u{201d}"
+        );
+    }
+
+    #[test]
+    fn test_fix_c1_controls_passes_through_non_c1() {
+        // \u{a0} is just above the C1 range.
+        let s = "ascii plus \u{a0} and \u{ff}";
+        assert_eq!(fix_c1_controls(s), s);
+    }
+
+    #[test]
+    fn test_fix_c1_controls_passes_through_pure_ascii() {
+        let s = "nothing to fix here";
+        let out = fix_c1_controls(s);
+        assert!(matches!(out, Cow::Borrowed(_)));
+        assert_eq!(out, s);
+    }
 }
