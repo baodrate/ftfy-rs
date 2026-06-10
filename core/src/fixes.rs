@@ -272,7 +272,7 @@ lazy_static! {
         regex::bytes::Regex::new(r"^(?-u:\xc3 ( |quele|quela|quilo|s ))").unwrap();
 }
 
-pub fn restore_byte_a0(byts: &[u8]) -> Vec<u8> {
+pub fn restore_byte_a0(byts: &[u8]) -> Cow<'_, [u8]> {
     /*
     Some mojibake has been additionally altered by a process that said "hmm,
     byte A0, that's basically a space!" and replaced it with an ASCII space.
@@ -286,7 +286,7 @@ pub fn restore_byte_a0(byts: &[u8]) -> Vec<u8> {
 
     This is used as a step within `fix_encoding`.
     */
-    let byts = A_GRAVE_WORD_RE.replace_all(&byts, |captures: &regex::bytes::Captures| {
+    let step1 = A_GRAVE_WORD_RE.replace_all(byts, |captures: &regex::bytes::Captures| {
         let mut result = captures[0].to_owned(); // Clone the captured bytes
 
         if A_GRAVE_NEGATIVE_RE.is_match(&result) {
@@ -300,20 +300,30 @@ pub fn restore_byte_a0(byts: &[u8]) -> Vec<u8> {
         result
     });
 
-    let byts = ALTERED_UTF8_RE.replace_all(&byts, |captures: &regex::bytes::Captures| {
-        let mut result = captures[0].to_owned(); // Clone the captured bytes
-        for byte in &mut result {
-            if *byte == b'\x20' {
-                *byte = b'\xa0';
+    // The second pass needs to operate on the result of the first. If the first
+    // produced an owned Vec, we have to feed `ALTERED_UTF8_RE` borrowed bytes
+    // that live as long as the local; if it didn't, we can chain the borrow.
+    match step1 {
+        Cow::Borrowed(b) => ALTERED_UTF8_RE.replace_all(b, altered_utf8_replacer),
+        Cow::Owned(v) => {
+            // We must produce a `Cow<'_, [u8]>` whose lifetime matches the input.
+            // Allocate the result of the second replace as an owned Vec.
+            match ALTERED_UTF8_RE.replace_all(&v, altered_utf8_replacer) {
+                Cow::Borrowed(_) => Cow::Owned(v),
+                Cow::Owned(v2) => Cow::Owned(v2),
             }
         }
-        result
-    });
-
-    byts.to_vec()
+    }
 }
 
-pub fn replace_lossy_sequences(byts: &Vec<u8>) -> Vec<u8> {
+fn altered_utf8_replacer(captures: &regex::bytes::Captures) -> Vec<u8> {
+    captures[0]
+        .iter()
+        .map(|&b| if b == b'\x20' { b'\xa0' } else { b })
+        .collect()
+}
+
+pub fn replace_lossy_sequences(byts: &[u8]) -> Cow<'_, [u8]> {
     /*
     This function identifies sequences where information has been lost in
     a "sloppy" codec, indicated by byte 0x1A, and if they would otherwise look
@@ -350,9 +360,7 @@ pub fn replace_lossy_sequences(byts: &Vec<u8>) -> Vec<u8> {
     This is used as a transcoder within `fix_encoding`.
     */
     let replace_content = "\u{FFFD}".as_bytes().to_owned();
-    LOSSY_UTF8_RE
-        .replace_all(&byts[..], replace_content)
-        .to_vec()
+    LOSSY_UTF8_RE.replace_all(byts, replace_content)
 }
 
 pub fn decode_inconsistent_utf8(text: &str) -> Cow<str> {

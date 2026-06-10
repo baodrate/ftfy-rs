@@ -608,13 +608,13 @@ fn _fix_encoding_one_step_and_explain(
                 {
                     let replaced_bytes = restore_byte_a0(&encoded_bytes);
 
-                    if replaced_bytes != encoded_bytes {
+                    if let std::borrow::Cow::Owned(v) = replaced_bytes {
                         if let Some(s) = &mut transcode_steps {
                             s.push(ExplanationStep {
                                 transformation: String::from("restore_byte_a0"),
                             });
                         }
-                        encoded_bytes = replaced_bytes;
+                        encoded_bytes = v;
                     }
                 }
 
@@ -622,13 +622,13 @@ fn _fix_encoding_one_step_and_explain(
                 if config.replace_lossy_sequences && encoding.name().starts_with("sloppy") {
                     let replaced_bytes = replace_lossy_sequences(&encoded_bytes);
 
-                    if replaced_bytes != encoded_bytes {
+                    if let std::borrow::Cow::Owned(v) = replaced_bytes {
                         if let Some(s) = &mut transcode_steps {
                             s.push(ExplanationStep {
                                 transformation: String::from("replace_lossy_sequences"),
                             });
                         }
-                        encoded_bytes = replaced_bytes;
+                        encoded_bytes = v;
                     }
                 }
 
