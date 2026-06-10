@@ -1,0 +1,82 @@
+name: Benchmark
+
+on:
+  pull_request:
+    paths:
+      - 'core/**'
+      - 'benchmarks/**'
+      - '.github/workflows/benchmark.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gungraun:
+    name: gungraun (vs base)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout PR (with base history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build artefacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./benchmarks
+
+      - name: Setup gungraun-runner and Valgrind
+        uses: gungraun/setup-gungraun@v1
+        with:
+          # Keep this in sync with `benchmarks/Cargo.toml`'s `gungraun` dev-dep.
+          runner-version: 0.19.2
+
+      - name: Resolve PR base and head SHAs
+        id: refs
+        run: |
+          echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          echo "head=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Benchmark base ref (save baseline)
+        id: baseline
+        continue-on-error: true
+        run: |
+          git checkout "${{ steps.refs.outputs.base }}"
+          if [ ! -f benchmarks/Cargo.toml ]; then
+            echo "Base ref has no benchmarks/ crate; skipping baseline." >&2
+            exit 1
+          fi
+          cargo bench --manifest-path benchmarks/Cargo.toml --bench fix_text -- \
+            --save-baseline=base
+
+      - name: Benchmark PR head (compare against baseline)
+        run: |
+          git checkout "${{ steps.refs.outputs.head }}"
+          if [ "${{ steps.baseline.outcome }}" = "success" ]; then
+            cargo bench --manifest-path benchmarks/Cargo.toml --bench fix_text -- \
+              --baseline=base | tee bench-output.txt
+          else
+            echo "No baseline available; running PR benchmarks standalone." | tee bench-output.txt
+            cargo bench --manifest-path benchmarks/Cargo.toml --bench fix_text \
+              | tee -a bench-output.txt
+          fi
+
+      - name: Publish results to job summary
+        if: always() && hashFiles('bench-output.txt') != ''
+        run: |
+          {
+            if [ "${{ steps.baseline.outcome }}" = "success" ]; then
+              echo "## gungraun benchmark — PR vs \`${{ steps.refs.outputs.base }}\`"
+            else
+              echo "## gungraun benchmark (PR head only — no baseline)"
+            fi
+            echo
+            echo '```'
+            cat bench-output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
