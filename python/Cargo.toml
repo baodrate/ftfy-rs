@@ -1,7 +1,7 @@
 [package]
 name = "plsfix-py"
-version = "0.1.8"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
@@ -9,8 +9,5 @@ name = "plsfix"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.28.3" }
-plsfix = { path = "../core" }
-
-[profile.release]
-debug = true
+pyo3 = { workspace = true }
+plsfix = { workspace = true }

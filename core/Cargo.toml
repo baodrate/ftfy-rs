@@ -1,30 +1,27 @@
 [package]
 name = "plsfix"
-version = "0.1.8"
-edition = "2021"
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 description = "Text cleaner upper"
-repository = "https://github.com/kevinhu/plsfix"
+repository.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-encoding = "0.2.33"
-encoding_rs = "0.8.35"
-fancy-regex = { version = "0.14.0" }
-html-escape = "0.2.13"
-icu = "1.5.0"
-lazy_static = "1.5.0"
-oem_cp = { version = "2.0.0", features = ["alloc"] }
-regex = "1.11.1"
-rustc-hash = "2.1.0"
-unicode-normalization = { version = "0.1.24", default-features = false }
+encoding = { workspace = true }
+encoding_rs = { workspace = true }
+fancy-regex = { workspace = true }
+html-escape = { workspace = true }
+icu = { workspace = true }
+lazy_static = { workspace = true }
+oem_cp = { workspace = true, features = ["alloc"] }
+regex = { workspace = true }
+rustc-hash = { workspace = true }
+unicode-normalization = { workspace = true }
 
 [dev-dependencies]
-pretty_assertions = "0.4.1"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-unicode_names2 = "3.1.0"
-
-[profile.release]
-debug = true
+pretty_assertions = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+unicode_names2 = { workspace = true }
