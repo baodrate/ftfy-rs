@@ -11,7 +11,6 @@ repository.workspace = true
 [dependencies]
 encoding = { workspace = true }
 encoding_rs = { workspace = true }
-fancy-regex = { workspace = true }
 htmlize = { workspace = true, features = ["unescape_fast"] }
 icu = { workspace = true }
 lazy_static = { workspace = true }
@@ -30,3 +29,4 @@ unicode_names2 = { workspace = true }
 [build-dependencies]
 htmlize = { workspace = true, features = ["entities"] }
 phf_codegen = { workspace = true }
+unicode_names2 = { workspace = true }

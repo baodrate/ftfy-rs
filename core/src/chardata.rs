@@ -3,6 +3,8 @@ use unicode_normalization::UnicodeNormalization;
 
 use regex::Regex;
 
+pub use crate::utf8::UTF8_CONTINUATION_STRICT_SET;
+
 use crate::codecs::sloppy::{
     Codec, CodecType, CP437, ISO_8859_2, LATIN_1, MACROMAN, SLOPPY_WINDOWS_1250,
     SLOPPY_WINDOWS_1251, SLOPPY_WINDOWS_1252, SLOPPY_WINDOWS_1253, SLOPPY_WINDOWS_1254,
@@ -218,8 +220,8 @@ lazy_static! {
     This regex matches C1 control characters, which occupy some of the positions
     in the Latin-1 character map that Windows assigns to other characters instead.
     */
-    pub static ref C1_CONTROL_RE: fancy_regex::Regex =
-        fancy_regex::Regex::new(r"[\x80-\x9f]").unwrap();
+    pub static ref C1_CONTROL_RE: regex::Regex =
+        regex::Regex::new(r"[\x80-\x9f]").unwrap();
 
     /*
     A translate mapping that breaks ligatures made of Latin letters. While
@@ -327,11 +329,12 @@ lazy_static! {
     lowercase letter, will prevent some cases of inconsistent UTF-8 from being
     fixed when they don't see it.
     */
-    pub static ref UTF8_DETECTOR_RE: fancy_regex::Regex = {
-        fancy_regex::Regex::new(
+    // Lookbehind `(?<![strict])` lives in `decode_inconsistent_utf8` instead —
+    // the `regex` crate doesn't support lookarounds.
+    pub static ref UTF8_DETECTOR_RE: regex::Regex = {
+        regex::Regex::new(
         &format!(
             r"(?x)
-            (?<! [{utf8_continuation_strict}])
             (
                 [{utf8_first_of_2}] [{utf8_continuation}]
                 |
@@ -339,7 +342,6 @@ lazy_static! {
                 |
                 [{utf8_first_of_4}] [{utf8_continuation}]{{3}}
             )+",
-            utf8_continuation_strict = UTF8_CLUES["utf8_continuation_strict"],
             utf8_first_of_2 = UTF8_CLUES["utf8_first_of_2"],
             utf8_first_of_3 = UTF8_CLUES["utf8_first_of_3"],
             utf8_first_of_4 = UTF8_CLUES["utf8_first_of_4"],
@@ -803,5 +805,23 @@ mod tests {
             .collect();
 
         assert_eq!(ours, expected);
+    }
+
+    #[test]
+    fn test_strict_continuation_set_matches_clue() {
+        // Drift check between the build.rs-generated phf set and the
+        // `utf8_continuation_strict` clue string (which is itself pinned to
+        // ftfy by test_utf8_clues_match_ftfy). The two are independent
+        // representations of the same data — if either changes, this fires.
+        let clue = UTF8_CLUES["utf8_continuation_strict"];
+        let mut expected: std::collections::BTreeSet<char> = ('\u{80}'..='\u{bf}').collect();
+        for c in clue.chars().skip(r"\x80-\xbf".len()) {
+            expected.insert(c);
+        }
+        let actual: std::collections::BTreeSet<char> = super::UTF8_CONTINUATION_STRICT_SET
+            .iter()
+            .copied()
+            .collect();
+        assert_eq!(actual, expected);
     }
 }
