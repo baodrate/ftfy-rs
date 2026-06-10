@@ -1,0 +1,16 @@
+[package]
+name = "plsfix-benchmarks"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+plsfix = { workspace = true }
+
+[dev-dependencies]
+gungraun = { workspace = true }
+
+[[bench]]
+name = "fix_text"
+harness = false
+path = "benches/fix_text.rs"

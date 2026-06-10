@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "python"]
+members = ["core", "python", "benchmarks"]
 
 [workspace.package]
 version = "0.1.8"
@@ -13,6 +13,7 @@ plsfix = { path = "core" }
 encoding = "0.2.33"
 encoding_rs = "0.8.35"
 fancy-regex = "0.14.0"
+gungraun = "0.19.2"
 html-escape = "0.2.13"
 icu = "1.5.0"
 lazy_static = "1.5.0"
