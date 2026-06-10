@@ -1,14 +1,14 @@
 use crate::{
     badness::is_bad,
     chardata::{
-        ALTERED_UTF8_RE, C1_CONTROL_RE, CONTROL_CHARS, DOUBLE_QUOTE_RE, HTML_ENTITIES,
-        HTML_ENTITY_RE, LIGATURES, LOSSY_UTF8_RE, SINGLE_QUOTE_RE, UTF8_DETECTOR_RE, WIDTH_MAP,
+        ALTERED_UTF8_RE, C1_CONTROL_RE, CONTROL_CHARS, DOUBLE_QUOTE_RE, HTML_ENTITY_RE, LIGATURES,
+        LOSSY_UTF8_RE, SINGLE_QUOTE_RE, UTF8_DETECTOR_RE, WIDTH_MAP,
     },
     codecs::sloppy::{Codec, LATIN_1, SLOPPY_WINDOWS_1252},
     fix_encoding_and_explain,
+    html_entities::lookup_upper_alias,
 };
 use regex::{Regex, Replacer};
-use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 
 fn _unescape_fixup(capture: &regex::Captures) -> String {
@@ -17,20 +17,20 @@ fn _unescape_fixup(capture: &regex::Captures) -> String {
     if possible.
     */
     let text = capture.get(0).map_or("", |m| m.as_str());
-    match HTML_ENTITIES.get(text) {
-        Some(val) => val.to_string(),
-        None => {
-            if text.starts_with("&#") {
-                let unescaped = html_escape::decode_html_entities(text);
-                if unescaped.contains(";") {
-                    return text.to_string();
-                }
-                unescaped.to_string()
-            } else {
-                text.to_string()
-            }
-        }
+    // Check the compile-time ALL-CAPS overlay first (`hashify::tiny_map!`
+    // expands to a gperf-style perfect-hash `match`). Falls through to
+    // `htmlize` (WHATWG named entities + § 13.2.5.80 numeric refs).
+    if let Some(val) = lookup_upper_alias(text) {
+        return val.to_string();
     }
+    let unescaped = htmlize::unescape(text);
+    if unescaped.as_ref() != text {
+        if unescaped.contains(';') {
+            return text.to_string();
+        }
+        return unescaped.into_owned();
+    }
+    text.to_string()
 }
 
 pub fn unescape_html(text: &str) -> Cow<str> {
@@ -359,45 +359,6 @@ pub fn replace_lossy_sequences(byts: &Vec<u8>) -> Vec<u8> {
     LOSSY_UTF8_RE
         .replace_all(&byts[..], replace_content)
         .to_vec()
-}
-
-lazy_static! {
-    pub static ref C1_TO_WINDOWS: FxHashMap<u8, Vec<u8>> = {
-        let mut map: FxHashMap<u8, Vec<u8>> = FxHashMap::default();
-        map.insert(0x80, vec![0xe2, 0x82, 0xac]);
-        map.insert(0x81, vec![0xc2, 0x81]);
-        map.insert(0x82, vec![0xe2, 0x80, 0x9a]);
-        map.insert(0x83, vec![0xc6, 0x92]);
-        map.insert(0x84, vec![0xe2, 0x80, 0x9e]);
-        map.insert(0x85, vec![0xe2, 0x80, 0xa6]);
-        map.insert(0x86, vec![0xe2, 0x80, 0xa0]);
-        map.insert(0x87, vec![0xe2, 0x80, 0xa1]);
-        map.insert(0x88, vec![0xcb, 0x86]);
-        map.insert(0x89, vec![0xe2, 0x80, 0xb0]);
-        map.insert(0x8a, vec![0xc5, 0xa0]);
-        map.insert(0x8b, vec![0xe2, 0x80, 0xb9]);
-        map.insert(0x8c, vec![0xc5, 0x92]);
-        map.insert(0x8d, vec![0xc2, 0x8d]);
-        map.insert(0x8e, vec![0xc5, 0xbd]);
-        map.insert(0x8f, vec![0xc2, 0x8f]);
-        map.insert(0x90, vec![0xc2, 0x90]);
-        map.insert(0x91, vec![0xe2, 0x80, 0x98]);
-        map.insert(0x92, vec![0xe2, 0x80, 0x99]);
-        map.insert(0x93, vec![0xe2, 0x80, 0x9c]);
-        map.insert(0x94, vec![0xe2, 0x80, 0x9d]);
-        map.insert(0x95, vec![0xe2, 0x80, 0xa2]);
-        map.insert(0x96, vec![0xe2, 0x80, 0x93]);
-        map.insert(0x97, vec![0xe2, 0x80, 0x94]);
-        map.insert(0x98, vec![0xcb, 0x9c]);
-        map.insert(0x99, vec![0xe2, 0x84, 0xa2]);
-        map.insert(0x9a, vec![0xc5, 0xa1]);
-        map.insert(0x9b, vec![0xe2, 0x80, 0xba]);
-        map.insert(0x9c, vec![0xc5, 0x93]);
-        map.insert(0x9d, vec![0xc2, 0x9d]);
-        map.insert(0x9e, vec![0xc5, 0xbe]);
-        map.insert(0x9f, vec![0xc5, 0xb8]);
-        map
-    };
 }
 
 pub fn decode_inconsistent_utf8(text: &str) -> Cow<str> {
@@ -938,13 +899,45 @@ mod tests {
         assert_eq!(unescape_html("V&SCARON;ICHNI"), "VŠICHNI");
     }
 
+    // WHATWG § 13.2.5.80: noncharacters are emitted as their codepoint
+    // ("parse error, but the character is emitted"). Python's
+    // `html.unescape` deletes them; plsfix follows WHATWG.
     #[test]
     fn test_unescape_html_noncharacter() {
-        assert_eq!(unescape_html("&#xffff;"), "");
+        assert_eq!(unescape_html("&#xffff;"), "\u{ffff}");
     }
 
+    // > 0x10FFFF → U+FFFD per WHATWG § 13.2.5.80.
     #[test]
     fn test_unescape_html_out_of_range() {
         assert_eq!(unescape_html("&#xffffffff;"), "\u{fffd}");
+    }
+
+    #[test]
+    fn test_unescape_html_above_unicode_max() {
+        assert_eq!(unescape_html("&#x110000;"), "\u{fffd}");
+    }
+
+    // NUL → U+FFFD per WHATWG § 13.2.5.80.
+    #[test]
+    fn test_unescape_html_nul() {
+        assert_eq!(unescape_html("&#0;"), "\u{fffd}");
+    }
+
+    // 0x80..=0x9F C1 remap per WHATWG § 13.2.5.80.
+    #[test]
+    fn test_unescape_html_c1_range_decimal() {
+        assert_eq!(unescape_html("&#128;"), "€");
+    }
+
+    #[test]
+    fn test_unescape_html_c1_range_dash() {
+        assert_eq!(unescape_html("en &#x96; dash"), "en \u{2013} dash");
+    }
+
+    #[test]
+    fn test_unescape_html_c1_self_mapped() {
+        // 0x9D has no HTML5 replacement → U+009D.
+        assert_eq!(unescape_html("&#x9d;"), "\u{9d}");
     }
 }
