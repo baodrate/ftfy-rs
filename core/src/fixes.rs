@@ -883,6 +883,55 @@ mod tests {
             "\\\\U12345678".as_bytes()
         );
     }
+
+    // Each consecutive `\xc3 ` à-grave word must get its own `\xc3\xa0 `
+    // rewrite — adjacent matches can't overlap or merge.
+    #[test]
+    fn test_restore_byte_a0_two_consecutive_a_grave() {
+        assert_eq!(
+            restore_byte_a0(b"\xc3 \xc3 "),
+            b"\xc3\xa0 \xc3\xa0 ".to_vec()
+        );
+    }
+
+    #[test]
+    fn test_restore_byte_a0_three_consecutive_a_grave() {
+        assert_eq!(
+            restore_byte_a0(b"\xc3 \xc3 \xc3 "),
+            b"\xc3\xa0 \xc3\xa0 \xc3\xa0 ".to_vec()
+        );
+    }
+
+    // An à-grave word followed immediately by another word ("à la") must
+    // keep the separating space rather than glue the two together.
+    #[test]
+    fn test_restore_byte_a0_a_grave_followed_by_la() {
+        assert_eq!(
+            restore_byte_a0(b"\xc3 \xc3 la"),
+            b"\xc3\xa0 \xc3\xa0 la".to_vec()
+        );
+    }
+
+    // Non-adjacent à-words exercise the common case.
+    #[test]
+    fn test_restore_byte_a0_a_grave_la_a_grave_mode() {
+        assert_eq!(
+            restore_byte_a0(b"\xc3 la \xc3 mode"),
+            b"\xc3\xa0 la \xc3\xa0 mode".to_vec()
+        );
+    }
+
+    // The exception list (" " / "quele" / "quela" / "quilo" / "s ") suppresses
+    // the `\xa0 ` *insertion*; ALTERED_UTF8_RE then rewrites the lone `\xc3 `
+    // to `\xc3\xa0` in the second pass.
+    #[test]
+    fn test_restore_byte_a0_portuguese_exceptions_preserved() {
+        assert_eq!(restore_byte_a0(b"\xc3 quele"), b"\xc3\xa0quele".to_vec());
+        assert_eq!(restore_byte_a0(b"\xc3 quela"), b"\xc3\xa0quela".to_vec());
+        assert_eq!(restore_byte_a0(b"\xc3 quilo"), b"\xc3\xa0quilo".to_vec());
+        assert_eq!(restore_byte_a0(b"\xc3 s "), b"\xc3\xa0s ".to_vec());
+        assert_eq!(restore_byte_a0(b"\xc3  "), b"\xc3\xa0 ".to_vec());
+    }
 }
 
 /// Ported from ftfy's `tests/test_characters.py`
