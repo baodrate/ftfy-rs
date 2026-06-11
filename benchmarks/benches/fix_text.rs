@@ -1,5 +1,5 @@
 use gungraun::prelude::*;
-use gungraun::{Callgrind, EventKind};
+use gungraun::{Callgrind, EventKind, FlamegraphConfig};
 use plsfix::fix_text;
 use std::hint::black_box;
 
@@ -29,7 +29,7 @@ fn make_mixed(repeats: usize) -> String {
 #[bench::clean(args = [1], setup = make_clean)]
 #[bench::mojibake(args = [1], setup = make_mojibake)]
 #[bench::mixed(args = [1], setup = make_mixed)]
-fn cold_fix_text(input: String) -> String {
+fn cold(input: String) -> String {
     black_box(fix_text(black_box(&input), None))
 }
 
@@ -39,21 +39,32 @@ fn cold_fix_text(input: String) -> String {
 #[bench::clean(args = [1_000], setup = make_clean)]
 #[bench::mojibake(args = [1_000], setup = make_mojibake)]
 #[bench::mixed(args = [1_000], setup = make_mixed)]
-fn warm_fix_text(input: String) -> String {
+fn warm(input: String) -> String {
     black_box(fix_text(black_box(&input), None))
 }
 
-library_benchmark_group!(name = cold_start, benchmarks = cold_fix_text);
-library_benchmark_group!(name = warm_start, benchmarks = warm_fix_text);
+library_benchmark_group!(name = run, benchmarks = [cold, warm]);
 
 // Soft limits make `cargo bench` exit non-zero when a benchmark regresses past
-// the threshold, while still emitting `summary.json` so CI can post the diff
-// table. Callgrind counts are deterministic, so Ir tolerates a tight 5%; the
-// estimated cycle figure folds in cache modelling and varies more, hence 10%.
+// the threshold. Measured locally against the base ref:
+//
+//   Ir on identical code         ≤ 0.0005%
+//   Ir from an inert black_box   ≤ 0.0003%
+//   Ir from one per-byte fold    0.06 – 0.23%
+//   Ir from 50× per-byte fold    2.96 – 11.46%  (regressed, as intended)
+//
+// Cycles fold in cache modelling and shift ±0.2% from layout alone, so the
+// Cycles limit is loosened to 2× Ir — still far below any real regression
+// (the 50× fold above pushed Cycles to +9.7%).
+//
+// FlamegraphConfig::default() also emits a regular and a differential
+// flamegraph per bench under target/gungraun/**/*.svg, which CI uploads as
+// an artefact.
 main!(
     config = LibraryBenchmarkConfig::default().tool(
         Callgrind::default()
-            .soft_limits([(EventKind::Ir, 5.0), (EventKind::EstimatedCycles, 10.0)])
+            .soft_limits([(EventKind::Ir, 1.0), (EventKind::EstimatedCycles, 2.0)])
+            .flamegraph(FlamegraphConfig::default())
     ),
-    library_benchmark_groups = [cold_start, warm_start]
+    library_benchmark_groups = [run]
 );

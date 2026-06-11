@@ -59,6 +59,12 @@ jobs:
             --save-baseline=base
 
       - name: Benchmark PR head (compare against baseline)
+        id: head
+        # Gungraun's soft_limits (declared in benchmarks/benches/fix_text.rs)
+        # make this step exit non-zero on regression. `continue-on-error` lets
+        # downstream steps still post the diff comment / artefacts; the job is
+        # marked failed at the end so CI signals the regression.
+        continue-on-error: true
         run: |
           git checkout "${{ steps.refs.outputs.head }}"
           if [ "${{ steps.baseline.outcome }}" = "success" ]; then
@@ -69,6 +75,19 @@ jobs:
             cargo bench --manifest-path benchmarks/Cargo.toml --bench fix_text -- \
               --save-summary=json | tee -a bench-output.txt
           fi
+
+      - name: Upload gungraun artefacts (summaries + flamegraphs)
+        id: artefacts
+        if: always() && hashFiles('target/gungraun/**/summary.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: gungraun-${{ github.event.pull_request.number || github.run_id }}
+          path: |
+            target/gungraun/**/*.svg
+            target/gungraun/**/summary.json
+            target/gungraun/**/*.log
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Build summary table and comment body
         if: always() && hashFiles('bench-output.txt') != ''
@@ -84,21 +103,29 @@ jobs:
           # BenchmarkSummary with metrics at
           #   profiles[i].summaries.parts[j].metrics_summary.Callgrind
           # — a MetricsSummary keyed by metric name (Ir, EstimatedCycles, …).
-          # diff_pct is a stringified percentage (e.g. "-12.34" → -12.34%),
+          # `diff_pct` is a stringified percentage (e.g. "-12.34" → -12.34%),
           # serialized as a string to preserve `inf`. We only surface the
           # delta — raw counts live in the full-output collapsible below.
           #
-          # Colour thresholds (|Δ%|):
-          #   <  NEGLIGIBLE_PCT      → plain text, no colour
-          #   <  per-metric bold pct → coloured (green = faster, red = slower)
-          #   >= per-metric bold pct → coloured AND bold
-          # The bold cutoff matches that metric's soft-limit (declared in
-          # benchmarks/benches/fix_text.rs) so bold ≡ "this is what failed
-          # the job". Rendered via GitHub's KaTeX inline-math syntax, which
-          # is the only way to get colour in a PR-comment markdown table.
+          # Thresholds were calibrated by re-running the bench against itself
+          # (noise floor) and against tiny / large injected slowdowns:
+          #
+          #   Ir noise on identical code  ≤ 0.0005%
+          #   Ir from one-shot black_box  ≤ 0.0003%      (still noise)
+          #   Ir from per-byte fold once  0.06 – 0.23%   (real, small)
+          #   Ir from 50× per-byte fold   2.96 – 11.46%  (fails build)
+          #
+          # Callgrind cycle counts fold in cache modelling, which is *much*
+          # more sensitive to code layout: an inert black_box shifted cycles
+          # by ±0.2% with zero perf change. Cycles thresholds are therefore
+          # ~6× looser than Ir to stay above that layout-noise floor.
+          #
+          # The bold cut-off matches that metric's gungraun soft-limit (see
+          # benchmarks/benches/fix_text.rs), so bold ≡ "this is the regression
+          # that failed the job". Rendered via GitHub's KaTeX inline-math
+          # syntax, the only way to colour cells inside a PR-comment table.
           read -r -d '' JQ_PROG <<'JQ' || true
-          def NEGLIGIBLE_PCT: 1.0;
-          def fmt_pct(s; bold_pct):
+          def fmt_pct(s; negligible_pct; bold_pct):
             if s == null then "—"
             elif (s | tostring | test("inf"; "i")) then
               "$\\color{red}\\textbf{" + (s | tostring) + "}$"
@@ -109,33 +136,52 @@ jobs:
                   (if $n < 0 then -$n else $n end) as $abs
                   | (if $n > 0 then "+" else "" end) as $sign
                   | (($n * 100 | round) / 100) as $rounded
-                  | ($sign + ($rounded | tostring)) as $num
-                  | if $abs < NEGLIGIBLE_PCT then $num + "%"
+                  # When |Δ| rounds to 0.00 at two decimals, "+0%" reads as
+                  # "exactly nothing changed" which the diff_pct rarely is —
+                  # so show "≈0%" to make the rounding explicit.
+                  | (if $rounded == 0
+                     then "≈0%"
+                     else $sign + ($rounded | tostring) + "%" end) as $num_plain
+                  | (if $rounded == 0
+                     then "≈0"
+                     else $sign + ($rounded | tostring) end) as $num_math
+                  | if $abs < negligible_pct then $num_plain
                     elif $abs >= bold_pct then
                       (if $n > 0
-                       then "$\\color{red}\\textbf{" + $num + "\\%}$"
-                       else "$\\color{green}\\textbf{" + $num + "\\%}$" end)
+                       then "$\\color{red}\\textbf{" + $num_math + "\\%}$"
+                       else "$\\color{green}\\textbf{" + $num_math + "\\%}$" end)
                     else
                       (if $n > 0
-                       then "$\\color{red}{" + $num + "\\%}$"
-                       else "$\\color{green}{" + $num + "\\%}$" end)
+                       then "$\\color{red}{" + $num_math + "\\%}$"
+                       else "$\\color{green}{" + $num_math + "\\%}$" end)
                     end
                 end
             end;
           . as $b
           | ($b.profiles[0].summaries.parts[0].metrics_summary.Callgrind // {}) as $ms
+          # `function_name id` reads cleanly in the table (e.g. `cold clean`)
+          # — the full `module_path` (file::group::fn) duplicates context the
+          # comment header already states.
           | (
-              ($b.module_path // "")
+              ($b.function_name // "")
               + (if (($b.id // "") | tostring) != "" then " " + ($b.id|tostring) else "" end)
             ) as $name
           | "| `" + $name + "` | "
-            + fmt_pct((($ms.Ir // {}).diffs // {}).diff_pct; 5.0) + " | "
-            + fmt_pct((($ms.EstimatedCycles // {}).diffs // {}).diff_pct; 10.0) + " |"
+            + fmt_pct((($ms.Ir // {}).diffs // {}).diff_pct; 0.08; 0.16) + " | "
+            + fmt_pct((($ms.EstimatedCycles // {}).diffs // {}).diff_pct; 0.5; 1.0) + " |"
           JQ
+
+          PR_NUM='${{ github.event.pull_request.number }}'
+          BASE_REF='${{ github.event.pull_request.base.ref }}'
+          ARTEFACT_URL='${{ steps.artefacts.outputs.artifact-url }}'
 
           {
             if [ "${{ steps.baseline.outcome }}" = "success" ]; then
-              echo "## gungraun benchmark — PR vs \`${{ steps.refs.outputs.base }}\`"
+              if [ -n "$PR_NUM" ]; then
+                echo "## gungraun benchmark — PR-${PR_NUM} vs \`${BASE_REF}\`"
+              else
+                echo "## gungraun benchmark — head vs \`${BASE_REF:-base}\`"
+              fi
             else
               echo "## gungraun benchmark (PR head only — no baseline)"
             fi
@@ -147,11 +193,15 @@ jobs:
                 jq -r "$JQ_PROG" "$f"
               done
               echo
-              echo "<sub>Green = faster, red = slower. Bold marks a regression past the soft-limit threshold (Ir ≥ 5%, Cycles ≥ 10%); benchmark runs that breach the threshold fail the job.</sub>"
+              echo "<sub>Green = faster, red = slower. **Bold** marks a regression past the soft-limit threshold (Ir ≥ 1%, Cycles ≥ 2%), which fails the job. Δ% under 0.08% (Ir) / 0.5% (Cycles) is treated as noise and left uncoloured.</sub>"
             else
               echo "_No \`summary.json\` files found under \`target/gungraun/\`._"
             fi
             echo
+            if [ -n "$ARTEFACT_URL" ]; then
+              echo "Differential flamegraphs and raw summaries: [download artefact](${ARTEFACT_URL})"
+              echo
+            fi
             echo "<details><summary>Full gungraun output</summary>"
             echo
             echo '```'
@@ -171,3 +221,9 @@ jobs:
         with:
           header: gungraun-benchmark
           path: bench-body.md
+
+      - name: Fail job if the benchmark regressed
+        if: always() && steps.head.outcome == 'failure'
+        run: |
+          echo "::error::gungraun detected a benchmark regression past the configured soft-limit."
+          exit 1
