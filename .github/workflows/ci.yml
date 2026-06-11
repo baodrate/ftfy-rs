@@ -1,0 +1,168 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+  checks: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+
+jobs:
+  check:
+    name: cargo check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build artefacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo check
+        run: cargo check --workspace --all-targets --all-features --locked
+
+  test:
+    name: cargo test
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build artefacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-nextest + cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest,cargo-llvm-cov
+
+      - name: Run tests with coverage
+        # `cargo llvm-cov nextest` runs the test suite under llvm-cov
+        # instrumentation and still honours the `ci` nextest profile,
+        # which writes target/nextest/ci/junit.xml. So one command
+        # produces both the JUnit report AND lcov.info.
+        # Don't fail the step on test failures — the publisher below
+        # sees the JUnit report and decides the verdict via `fail_on_failure`.
+        continue-on-error: true
+        run: |
+          cargo llvm-cov nextest \
+            --workspace --all-features --profile ci \
+            --lcov --output-path lcov.info
+
+      - name: Make lcov paths workspace-relative
+        # cargo-llvm-cov writes absolute `SF:` paths
+        # (/home/runner/work/<repo>/<repo>/...). zgosalvez compares each
+        # PR-changed file (a repo-root-relative path it gets from the
+        # listFiles API) against the lcov entries with a literal
+        # startsWith and doesn't use its own working-directory input for
+        # this — so without rewriting the prefix every changed file
+        # mismatches and the PR comment shows
+        # "Files changed coverage rate: n/a".
+        if: always() && hashFiles('lcov.info') != ''
+        run: sed -i "s|SF:${{ github.workspace }}/|SF:|g" lcov.info
+
+      - name: Install lcov (genhtml)
+        # Required by zgosalvez/github-actions-report-lcov to build the
+        # HTML report — the action doesn't bundle lcov itself.
+        if: always() && hashFiles('lcov.info') != ''
+        uses: hrishikesh-kadam/setup-lcov@v1
+
+      - name: Shim lcov with a "Reading tracefile" prefix line
+        # zgosalvez's summarize() / detail() strip the first line of
+        # lcov's stdout, assuming it's the legacy "Reading tracefile..."
+        # banner from lcov 1.x. lcov 2.x dropped that banner, so the
+        # strip instead eats real content — the `|Lines |Functions
+        # |Branches` column header in the per-file table. Restore it by
+        # putting a shim earlier in PATH that prepends the banner.
+        if: always() && hashFiles('lcov.info') != ''
+        run: |
+          LCOV_REAL=$(command -v lcov)
+          mkdir -p "$RUNNER_TEMP/lcov-shim"
+          cat > "$RUNNER_TEMP/lcov-shim/lcov" <<EOF
+          #!/bin/sh
+          echo "Reading tracefile..."
+          exec "$LCOV_REAL" "\$@"
+          EOF
+          chmod +x "$RUNNER_TEMP/lcov-shim/lcov"
+          echo "$RUNNER_TEMP/lcov-shim" >> "$GITHUB_PATH"
+
+      - name: Summarise coverage
+        if: always() && hashFiles('lcov.info') != ''
+        id: coverage
+        uses: zgosalvez/github-actions-report-lcov@v7
+        with:
+          coverage-files: lcov.info
+          # Setting a non-empty artifact-name makes the action generate
+          # the genhtml HTML report and upload it as a workflow artifact.
+          artifact-name: coverage-html-report
+          # Mikepenz's `summary:` input doesn't surface in its PR comment
+          # (only in the job summary / check run), so let zgosalvez post
+          # its own coverage comment. Artifact-id is produced by this
+          # same step so we can't self-reference it — point at the run
+          # page instead.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          update-comment: true
+          additional-message: |
+            [Download HTML report](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+      - name: Publish test report
+        if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
+        uses: mikepenz/action-junit-report@v6
+        with:
+          report_paths: target/nextest/ci/junit.xml
+          check_name: cargo test results
+          # Fail the job on any failing test. Requires main to stay green.
+          fail_on_failure: true
+          require_tests: true
+          detailed_summary: true
+          comment: ${{ github.event_name == 'pull_request' }}
+          summary: |
+            **Coverage:** ${{ steps.coverage.outputs.total-coverage || 'n/a' }}% — [download HTML report](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ steps.coverage.outputs.artifact-id }})
+
+  clippy:
+    name: cargo clippy
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo build artefacts
+        uses: Swatinem/rust-cache@v2
+
+      # rs-clippy-check posts findings as GitHub Checks API annotations on
+      # the commit, and fails the job on any clippy error. GitHub caps
+      # Checks annotations at 10/type/run; the rest still appear in the
+      # check summary.
+      - name: Run clippy
+        # `rs-clippy-check` only ships specific versions (no floating major
+        # `v6` tag); pin to the latest release.
+        uses: clechasseur/rs-clippy-check@v6.0.4
+        with:
+          args: --workspace --all-targets --all-features

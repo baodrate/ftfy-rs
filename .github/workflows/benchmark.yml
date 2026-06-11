@@ -7,6 +7,34 @@ on:
       - 'benchmarks/**'
       - '.github/workflows/benchmark.yml'
   workflow_dispatch:
+    # Thresholds — all values are |Δ%| relative to the base ref.
+    # Defaults are the calibrated values from the initial measurement runs
+    # (see the comment in benchmarks/benches/fix_text.rs).
+    inputs:
+      ir_fail_pct:
+        description: 'Ir: fail the job (gungraun soft-limit)'
+        type: number
+        default: 1.0
+      ir_bold_pct:
+        description: 'Ir: bold the cell (significant change)'
+        type: number
+        default: 0.16
+      ir_negligible_pct:
+        description: 'Ir: leave the cell uncoloured (noise)'
+        type: number
+        default: 0.08
+      cycles_fail_pct:
+        description: 'Cycles: fail the job (gungraun soft-limit)'
+        type: number
+        default: 2.0
+      cycles_bold_pct:
+        description: 'Cycles: bold the cell (significant change)'
+        type: number
+        default: 1.0
+      cycles_negligible_pct:
+        description: 'Cycles: leave the cell uncoloured (noise)'
+        type: number
+        default: 0.5
 
 permissions:
   contents: read
@@ -20,9 +48,20 @@ jobs:
     env:
       GUNGRAUN_COLOR: never
       CARGO_TERM_COLOR: never
+      # Thresholds. `inputs.X` is only populated on workflow_dispatch, so on
+      # pull_request triggers we fall back to the same defaults declared above.
+      # Keep these in sync with the defaults in `workflow_dispatch.inputs` (and
+      # with the in-code `soft_limits` in benchmarks/benches/fix_text.rs, which
+      # is what `cargo bench` uses when invoked outside CI).
+      IR_FAIL_PCT:           ${{ inputs.ir_fail_pct           || '1.0'  }}
+      IR_BOLD_PCT:           ${{ inputs.ir_bold_pct           || '0.16' }}
+      IR_NEGLIGIBLE_PCT:     ${{ inputs.ir_negligible_pct     || '0.08' }}
+      CYCLES_FAIL_PCT:       ${{ inputs.cycles_fail_pct       || '2.0'  }}
+      CYCLES_BOLD_PCT:       ${{ inputs.cycles_bold_pct       || '1.0'  }}
+      CYCLES_NEGLIGIBLE_PCT: ${{ inputs.cycles_negligible_pct || '0.5'  }}
     steps:
       - name: Checkout PR (with base history)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -31,8 +70,6 @@ jobs:
 
       - name: Cache cargo build artefacts
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ./benchmarks
 
       - name: Setup gungraun-runner and Valgrind
         uses: gungraun/setup-gungraun@v1
@@ -55,20 +92,50 @@ jobs:
             echo "Base ref has no benchmarks/ crate; skipping baseline." >&2
             exit 1
           fi
-          cargo bench --manifest-path benchmarks/Cargo.toml --bench fix_text -- \
+          cargo bench -p plsfix-benchmarks -- \
             --save-baseline=base
 
       - name: Benchmark PR head (compare against baseline)
+        id: head
+        # Gungraun's soft_limits (declared in benchmarks/benches/fix_text.rs)
+        # make this step exit non-zero on regression. `continue-on-error` lets
+        # downstream steps still post the diff comment / artefacts; the job is
+        # marked failed at the end so CI signals the regression.
+        #
+        # GUNGRAUN_CALLGRIND_LIMITS overrides the in-code `soft_limits` with the
+        # workflow's threshold inputs, so the fail point is a single source of
+        # truth at the top of this file.
+        continue-on-error: true
+        env:
+          GUNGRAUN_CALLGRIND_LIMITS: "Ir=${{ env.IR_FAIL_PCT }}%,EstimatedCycles=${{ env.CYCLES_FAIL_PCT }}%"
         run: |
+          # Without pipefail, `cargo bench | tee` reports `tee`'s exit
+          # (always 0), masking gungraun's non-zero exit on regression —
+          # which is the whole signal `steps.head.outcome` below uses to
+          # fail the job.
+          set -o pipefail
           git checkout "${{ steps.refs.outputs.head }}"
           if [ "${{ steps.baseline.outcome }}" = "success" ]; then
-            cargo bench --manifest-path benchmarks/Cargo.toml --bench fix_text -- \
+            cargo bench -p plsfix-benchmarks -- \
               --baseline=base --save-summary=json | tee bench-output.txt
           else
             echo "No baseline available; running PR benchmarks standalone." | tee bench-output.txt
-            cargo bench --manifest-path benchmarks/Cargo.toml --bench fix_text -- \
+            cargo bench -p plsfix-benchmarks -- \
               --save-summary=json | tee -a bench-output.txt
           fi
+
+      - name: Upload gungraun artefacts (summaries + flamegraphs)
+        id: artefacts
+        if: always() && hashFiles('target/gungraun/**/summary.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: gungraun-${{ github.event.pull_request.number || github.run_id }}
+          path: |
+            target/gungraun/**/*.svg
+            target/gungraun/**/summary.json
+            target/gungraun/**/*.log
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Build summary table and comment body
         if: always() && hashFiles('bench-output.txt') != ''
@@ -84,61 +151,101 @@ jobs:
           # BenchmarkSummary with metrics at
           #   profiles[i].summaries.parts[j].metrics_summary.Callgrind
           # — a MetricsSummary keyed by metric name (Ir, EstimatedCycles, …).
-          # Each metric value is wrapped: `{"Int": 1234}` or `{"Float": 1.2}`.
-          # For EitherOrBoth.Both the gungraun convention is "left is `new`,
-          # right is `old`" — so Both[0] is the PR-head value and Both[1] is
-          # the baseline. diff_pct is a stringified percentage value (e.g.
-          # "-12.34" → -12.34%), serialized as a string to preserve `inf`.
+          # `diff_pct` is a stringified percentage (e.g. "-12.34" → -12.34%),
+          # serialized as a string to preserve `inf`. We only surface the
+          # delta — raw counts live in the full-output collapsible below.
+          #
+          # Thresholds were calibrated by re-running the bench against itself
+          # (noise floor) and against tiny / large injected slowdowns:
+          #
+          #   Ir noise on identical code  ≤ 0.0005%
+          #   Ir from one-shot black_box  ≤ 0.0003%      (still noise)
+          #   Ir from per-byte fold once  0.06 – 0.23%   (real, small)
+          #   Ir from 50× per-byte fold   2.96 – 11.46%  (fails build)
+          #
+          # Callgrind cycle counts fold in cache modelling, which is *much*
+          # more sensitive to code layout: an inert black_box shifted cycles
+          # by ±0.2% with zero perf change. Cycles thresholds are therefore
+          # ~6× looser than Ir to stay above that layout-noise floor.
+          #
+          # The bold cut-off should sit roughly halfway between the noise band
+          # and the soft-limit, so bold ≡ "moving towards the fail threshold".
+          # Rendered via GitHub's KaTeX inline-math syntax, the only way to
+          # colour cells inside a PR-comment table.
+          #
+          # Thresholds (negligible / bold) come from job env vars set by the
+          # workflow_dispatch inputs at the top of this file. jq reads them
+          # straight out of env to keep them as a single source of truth.
           read -r -d '' JQ_PROG <<'JQ' || true
-          def unwrap(v): if v == null then null else (v.Int // v.Float // null) end;
-          def new_value(m):
-            m.metrics
-            | unwrap(.Both[0] // .Left // .Right // null);
-          def base_value(m):
-            m.metrics
-            | unwrap(.Both[1] // .Right // null);
-          def fmt_num(n):
-            if n == null then "—" else (n|tostring) end;
-          def fmt_pct(s):
+          # Format a float as a signed fixed two-decimal string, e.g.
+          # 1 → "+1.00", 0.85 → "+0.85", 0 → "0.00", -1.04 → "-1.04".
+          # jq's built-in `tostring` strips trailing zeros, so we work in
+          # cents (×100 integers), left-pad to at least 3 digits, and sub
+          # in the decimal point.
+          def fmt2($x):
+            (($x * 100) | round) as $c
+            | (if $c < 0 then "-" elif $c > 0 then "+" else "" end) as $sg
+            | (if $c < 0 then -$c else $c end | tostring) as $abs_s
+            | (if ($abs_s | length) < 3 then ("00" + $abs_s)[-3:] else $abs_s end) as $padded
+            | $sg + ($padded | sub("(?<f>\\d\\d)$"; ".\(.f)"));
+          def fmt_pct(s; negligible_pct; bold_pct):
             if s == null then "—"
-            elif (s | tostring | test("inf"; "i")) then (s | tostring)
+            elif (s | tostring | test("inf"; "i")) then
+              "⚠️ **\(s | tostring)**"
             else
-              try (
-                (s | tonumber) as $n
-                | (if $n > 0 then "+" else "" end)
-                  + (($n * 100 | round) / 100 | tostring)
-                  + "%"
-              ) catch (s | tostring)
+              (try (s | tonumber) catch null) as $n
+              | if $n == null then (s | tostring)
+                else
+                  (if $n < 0 then -$n else $n end) as $abs
+                  | (if $n > 0 then "⚠️" else "✅" end) as $emoji
+                  | (($n * 100 | round) / 100) as $rounded
+                  # When |Δ| rounds to 0.00 at two decimals, "+0%" reads
+                  # as "exactly nothing changed" which the diff_pct rarely
+                  # is — so show "≈0%" to make the rounding explicit.
+                  | (if $rounded == 0 then "≈0" else fmt2($rounded) end) as $num
+                  | if $abs < negligible_pct then "\($num)%"
+                    else
+                      (if $abs >= bold_pct then "**\($num)%**" else "\($num)%" end)
+                      | "\($emoji) \(.)"
+                    end
+                end
             end;
+          (env.IR_NEGLIGIBLE_PCT     | tonumber) as $ir_neg  |
+          (env.IR_BOLD_PCT           | tonumber) as $ir_bold |
+          (env.CYCLES_NEGLIGIBLE_PCT | tonumber) as $cy_neg  |
+          (env.CYCLES_BOLD_PCT       | tonumber) as $cy_bold |
           . as $b
           | ($b.profiles[0].summaries.parts[0].metrics_summary.Callgrind // {}) as $ms
-          | {
-              name: (
-                ($b.module_path // "")
-                + (if (($b.id // "") | tostring) != "" then " " + ($b.id|tostring) else "" end)
-              ),
-              ir_new:     fmt_num(new_value($ms.Ir // {})),
-              ir_base:    fmt_num(base_value($ms.Ir // {})),
-              ir_pct:     fmt_pct((($ms.Ir // {}).diffs // {}).diff_pct),
-              cy_new:     fmt_num(new_value($ms.EstimatedCycles // {})),
-              cy_base:    fmt_num(base_value($ms.EstimatedCycles // {})),
-              cy_pct:     fmt_pct((($ms.EstimatedCycles // {}).diffs // {}).diff_pct),
-            }
-          | "| `" + .name + "` | "
-            + .ir_new + " | " + .ir_base + " | " + .ir_pct + " | "
-            + .cy_new + " | " + .cy_base + " | " + .cy_pct + " |"
+          # `function_name id` reads cleanly in the table (e.g. `cold clean`)
+          # — the full `module_path` (file::group::fn) duplicates context the
+          # comment header already states.
+          | (
+              ($b.function_name // "")
+              + (if (($b.id // "") | tostring) != "" then " " + ($b.id|tostring) else "" end)
+            ) as $name
+          | "| `" + $name + "` | "
+            + fmt_pct((($ms.Ir // {}).diffs // {}).diff_pct; $ir_neg; $ir_bold) + " | "
+            + fmt_pct((($ms.EstimatedCycles // {}).diffs // {}).diff_pct; $cy_neg; $cy_bold) + " |"
           JQ
+
+          PR_NUM='${{ github.event.pull_request.number }}'
+          BASE_REF='${{ github.event.pull_request.base.ref }}'
+          ARTEFACT_URL='${{ steps.artefacts.outputs.artifact-url }}'
 
           {
             if [ "${{ steps.baseline.outcome }}" = "success" ]; then
-              echo "## gungraun benchmark — PR vs \`${{ steps.refs.outputs.base }}\`"
+              if [ -n "$PR_NUM" ]; then
+                echo "### gungraun benchmark — PR-${PR_NUM} vs \`${BASE_REF}\`"
+              else
+                echo "### gungraun benchmark — head vs \`${BASE_REF:-base}\`"
+              fi
             else
-              echo "## gungraun benchmark (PR head only — no baseline)"
+              echo "### gungraun benchmark (PR head only — no baseline)"
             fi
             echo
             if [ "${#summaries[@]}" -gt 0 ]; then
-              echo "| Benchmark | Ir (PR) | Ir (base) | ΔIr | Cycles (PR) | Cycles (base) | ΔCycles |"
-              echo "|---|---:|---:|---:|---:|---:|---:|"
+              echo "| Benchmark | ΔIr | ΔCycles |"
+              echo "|---|---:|---:|"
               for f in "${summaries[@]}"; do
                 jq -r "$JQ_PROG" "$f"
               done
@@ -146,6 +253,10 @@ jobs:
               echo "_No \`summary.json\` files found under \`target/gungraun/\`._"
             fi
             echo
+            if [ -n "$ARTEFACT_URL" ]; then
+              echo "Differential flamegraphs and raw summaries: [download artefact](${ARTEFACT_URL})"
+              echo
+            fi
             echo "<details><summary>Full gungraun output</summary>"
             echo
             echo '```'
@@ -165,3 +276,9 @@ jobs:
         with:
           header: gungraun-benchmark
           path: bench-body.md
+
+      - name: Fail job if the benchmark regressed
+        if: always() && steps.head.outcome == 'failure'
+        run: |
+          echo "::error::gungraun detected a benchmark regression past the configured soft-limit."
+          exit 1
