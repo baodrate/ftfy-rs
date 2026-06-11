@@ -15,10 +15,9 @@ htmlize = { workspace = true, features = ["unescape_fast"] }
 icu_normalizer = { workspace = true }
 lazy_static = { workspace = true }
 oem_cp = { workspace = true, features = ["alloc"] }
-phf = { workspace = true }
+phf = { workspace = true, features = ["macros"] }
 regex = { workspace = true }
 rustc-hash = { workspace = true }
-unicode-normalization = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
@@ -29,4 +28,5 @@ unicode_names2 = { workspace = true }
 [build-dependencies]
 htmlize = { workspace = true, features = ["entities"] }
 phf_codegen = { workspace = true }
+unicode-normalization = { workspace = true }
 unicode_names2 = { workspace = true }

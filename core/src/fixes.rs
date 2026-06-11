@@ -1,13 +1,12 @@
 use crate::{
     badness::is_bad,
     chardata::{
-        is_control_char, ALTERED_UTF8_RE, C1_CONTROL_RE, DOUBLE_QUOTE_RE, HTML_ENTITY_RE,
-        LIGATURES, LOSSY_UTF8_RE, SINGLE_QUOTE_RE, UTF8_CONTINUATION_STRICT_SET, UTF8_DETECTOR_RE,
-        WIDTH_MAP,
+        is_control_char, lookup_ligature, lookup_width, ALTERED_UTF8_RE, C1_CONTROL_RE,
+        DOUBLE_QUOTE_RE, HTML_ENTITY_RE, LOSSY_UTF8_RE, SINGLE_QUOTE_RE, UPPER_ALIASES,
+        UTF8_CONTINUATION_STRICT_SET, UTF8_DETECTOR_RE,
     },
     codecs::sloppy::{Codec, LATIN_1, SLOPPY_WINDOWS_1252},
     fix_encoding_and_explain,
-    html_entities::lookup_upper_alias,
 };
 use regex::{Regex, Replacer};
 use std::borrow::Cow;
@@ -20,7 +19,7 @@ fn _unescape_fixup(capture: &regex::Captures) -> String {
     let text = capture.get(0).map_or("", |m| m.as_str());
     // Check the compile-time ALL-CAPS overlay first. Falls through to
     // `htmlize` (WHATWG named entities + § 13.2.5.80 numeric refs).
-    if let Some(val) = lookup_upper_alias(text) {
+    if let Some(&val) = UPPER_ALIASES.get(text) {
         return val.to_string();
     }
     let unescaped = htmlize::unescape(text);
@@ -130,11 +129,11 @@ pub fn fix_latin_ligatures(text: &str) -> Cow<str> {
     and removing them may lose information. If you want to take apart nearly
     all ligatures, use NFKC normalization.
     */
-    if text.chars().any(|ch| LIGATURES.get(&(ch as u32)).is_some()) {
+    if text.chars().any(|ch| lookup_ligature(ch).is_some()) {
         let mut result = String::new();
 
         for ch in text.chars() {
-            match LIGATURES.get(&(ch as u32)) {
+            match lookup_ligature(ch) {
                 Some(replacement) => result.push_str(replacement),
                 None => result.push(ch),
             }
@@ -158,15 +157,15 @@ pub fn fix_character_width(text: &str) -> Cow<str> {
     Note that this replaces the ideographic space, U+3000, with the ASCII
     space, U+20.
     */
-    if !text.chars().any(|ch| WIDTH_MAP.contains_key(&(ch as u32))) {
+    if !text.chars().any(|ch| lookup_width(ch).is_some()) {
         return Cow::Borrowed(text);
     }
 
     let mut result = String::new();
 
     for ch in text.chars() {
-        match WIDTH_MAP.get(&(ch as u32)) {
-            Some(replacement) => result.push(*replacement),
+        match lookup_width(ch) {
+            Some(replacement) => result.push(replacement),
             None => result.push(ch),
         }
     }
