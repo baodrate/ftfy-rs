@@ -7,6 +7,34 @@ on:
       - 'benchmarks/**'
       - '.github/workflows/benchmark.yml'
   workflow_dispatch:
+    # Thresholds — all values are |Δ%| relative to the base ref.
+    # Defaults are the calibrated values from the initial measurement runs
+    # (see the comment in benchmarks/benches/fix_text.rs).
+    inputs:
+      ir_fail_pct:
+        description: 'Ir: fail the job (gungraun soft-limit)'
+        type: number
+        default: 1.0
+      ir_bold_pct:
+        description: 'Ir: bold the cell (significant change)'
+        type: number
+        default: 0.16
+      ir_negligible_pct:
+        description: 'Ir: leave the cell uncoloured (noise)'
+        type: number
+        default: 0.08
+      cycles_fail_pct:
+        description: 'Cycles: fail the job (gungraun soft-limit)'
+        type: number
+        default: 2.0
+      cycles_bold_pct:
+        description: 'Cycles: bold the cell (significant change)'
+        type: number
+        default: 1.0
+      cycles_negligible_pct:
+        description: 'Cycles: leave the cell uncoloured (noise)'
+        type: number
+        default: 0.5
 
 permissions:
   contents: read
@@ -20,6 +48,17 @@ jobs:
     env:
       GUNGRAUN_COLOR: never
       CARGO_TERM_COLOR: never
+      # Thresholds. `inputs.X` is only populated on workflow_dispatch, so on
+      # pull_request triggers we fall back to the same defaults declared above.
+      # Keep these in sync with the defaults in `workflow_dispatch.inputs` (and
+      # with the in-code `soft_limits` in benchmarks/benches/fix_text.rs, which
+      # is what `cargo bench` uses when invoked outside CI).
+      IR_FAIL_PCT:           ${{ inputs.ir_fail_pct           || '1.0'  }}
+      IR_BOLD_PCT:           ${{ inputs.ir_bold_pct           || '0.16' }}
+      IR_NEGLIGIBLE_PCT:     ${{ inputs.ir_negligible_pct     || '0.08' }}
+      CYCLES_FAIL_PCT:       ${{ inputs.cycles_fail_pct       || '2.0'  }}
+      CYCLES_BOLD_PCT:       ${{ inputs.cycles_bold_pct       || '1.0'  }}
+      CYCLES_NEGLIGIBLE_PCT: ${{ inputs.cycles_negligible_pct || '0.5'  }}
     steps:
       - name: Checkout PR (with base history)
         uses: actions/checkout@v4
@@ -64,7 +103,13 @@ jobs:
         # make this step exit non-zero on regression. `continue-on-error` lets
         # downstream steps still post the diff comment / artefacts; the job is
         # marked failed at the end so CI signals the regression.
+        #
+        # GUNGRAUN_CALLGRIND_LIMITS overrides the in-code `soft_limits` with the
+        # workflow's threshold inputs, so the fail point is a single source of
+        # truth at the top of this file.
         continue-on-error: true
+        env:
+          GUNGRAUN_CALLGRIND_LIMITS: "Ir=${{ env.IR_FAIL_PCT }}%,EstimatedCycles=${{ env.CYCLES_FAIL_PCT }}%"
         run: |
           git checkout "${{ steps.refs.outputs.head }}"
           if [ "${{ steps.baseline.outcome }}" = "success" ]; then
@@ -120,10 +165,14 @@ jobs:
           # by ±0.2% with zero perf change. Cycles thresholds are therefore
           # ~6× looser than Ir to stay above that layout-noise floor.
           #
-          # The bold cut-off matches that metric's gungraun soft-limit (see
-          # benchmarks/benches/fix_text.rs), so bold ≡ "this is the regression
-          # that failed the job". Rendered via GitHub's KaTeX inline-math
-          # syntax, the only way to colour cells inside a PR-comment table.
+          # The bold cut-off should sit roughly halfway between the noise band
+          # and the soft-limit, so bold ≡ "moving towards the fail threshold".
+          # Rendered via GitHub's KaTeX inline-math syntax, the only way to
+          # colour cells inside a PR-comment table.
+          #
+          # Thresholds (negligible / bold) come from job env vars set by the
+          # workflow_dispatch inputs at the top of this file. jq reads them
+          # straight out of env to keep them as a single source of truth.
           read -r -d '' JQ_PROG <<'JQ' || true
           def fmt_pct(s; negligible_pct; bold_pct):
             if s == null then "—"
@@ -157,6 +206,10 @@ jobs:
                     end
                 end
             end;
+          (env.IR_NEGLIGIBLE_PCT     | tonumber) as $ir_neg  |
+          (env.IR_BOLD_PCT           | tonumber) as $ir_bold |
+          (env.CYCLES_NEGLIGIBLE_PCT | tonumber) as $cy_neg  |
+          (env.CYCLES_BOLD_PCT       | tonumber) as $cy_bold |
           . as $b
           | ($b.profiles[0].summaries.parts[0].metrics_summary.Callgrind // {}) as $ms
           # `function_name id` reads cleanly in the table (e.g. `cold clean`)
@@ -167,8 +220,8 @@ jobs:
               + (if (($b.id // "") | tostring) != "" then " " + ($b.id|tostring) else "" end)
             ) as $name
           | "| `" + $name + "` | "
-            + fmt_pct((($ms.Ir // {}).diffs // {}).diff_pct; 0.08; 0.16) + " | "
-            + fmt_pct((($ms.EstimatedCycles // {}).diffs // {}).diff_pct; 0.5; 1.0) + " |"
+            + fmt_pct((($ms.Ir // {}).diffs // {}).diff_pct; $ir_neg; $ir_bold) + " | "
+            + fmt_pct((($ms.EstimatedCycles // {}).diffs // {}).diff_pct; $cy_neg; $cy_bold) + " |"
           JQ
 
           PR_NUM='${{ github.event.pull_request.number }}'
@@ -193,7 +246,7 @@ jobs:
                 jq -r "$JQ_PROG" "$f"
               done
               echo
-              echo "<sub>Green = faster, red = slower. **Bold** marks a regression past the soft-limit threshold (Ir ≥ 1%, Cycles ≥ 2%), which fails the job. Δ% under 0.08% (Ir) / 0.5% (Cycles) is treated as noise and left uncoloured.</sub>"
+              echo "<sub>Green = faster, red = slower. Cells turn **bold** at \`|Δ| ≥ ${IR_BOLD_PCT}%\` (Ir) / \`${CYCLES_BOLD_PCT}%\` (Cycles), and the job fails at \`|Δ| ≥ ${IR_FAIL_PCT}%\` (Ir) / \`${CYCLES_FAIL_PCT}%\` (Cycles). \`|Δ| < ${IR_NEGLIGIBLE_PCT}%\` (Ir) / \`${CYCLES_NEGLIGIBLE_PCT}%\` (Cycles) is treated as noise and left uncoloured. Thresholds are configurable via the workflow_dispatch inputs.</sub>"
             else
               echo "_No \`summary.json\` files found under \`target/gungraun/\`._"
             fi

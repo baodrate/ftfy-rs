@@ -46,7 +46,9 @@ fn warm(input: String) -> String {
 library_benchmark_group!(name = run, benchmarks = [cold, warm]);
 
 // Soft limits make `cargo bench` exit non-zero when a benchmark regresses past
-// the threshold. Measured locally against the base ref:
+// the threshold. CI overrides these via `GUNGRAUN_CALLGRIND_LIMITS` so the
+// threshold knobs live in `.github/workflows/benchmark.yml`; the values below
+// are the local-run default. Measured locally against the base ref:
 //
 //   Ir on identical code         ≤ 0.0005%
 //   Ir from an inert black_box   ≤ 0.0003%
