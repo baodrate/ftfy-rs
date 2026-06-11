@@ -102,6 +102,7 @@ plsfix aims to match ftfy behavior, but a few things differ:
 - **Byte-based `max_decode_length`.** The segment-length cap counts bytes rather than ftfy's codepoints; the split point is arbitrary either way.
 - **Baltic gap.** `windows-1257` is not yet a candidate codec, so some Baltic-language mojibake that ftfy fixes is left unchanged.
 - **HTML noncharacter refs.** Numeric character references in the Unicode noncharacter ranges (`&#xffff;`, U+FDD0..U+FDEF, …) decode to their codepoint, following WHATWG § 13.2.5.80; ftfy (via Python's `html.unescape`) deletes them.
+- **Fullwidth macron folding.** The width-folding map uses single-character values, so U+FFE3 (FULLWIDTH MACRON) folds to a plain space, dropping the combining macron its NFKC form carries (U+0020 + U+0304); ftfy preserves both characters. This is the only codepoint in the width range whose NFKC form is multi-character, so it's a known, minor simplification for now.
 
 ### Limitations (shared with ftfy)
 
