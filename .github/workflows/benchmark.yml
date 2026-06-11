@@ -245,8 +245,6 @@ jobs:
               for f in "${summaries[@]}"; do
                 jq -r "$JQ_PROG" "$f"
               done
-              echo
-              echo "<sub>Green = faster, red = slower. Cells turn **bold** at \`|Δ| ≥ ${IR_BOLD_PCT}%\` (Ir) / \`${CYCLES_BOLD_PCT}%\` (Cycles), and the job fails at \`|Δ| ≥ ${IR_FAIL_PCT}%\` (Ir) / \`${CYCLES_FAIL_PCT}%\` (Cycles). \`|Δ| < ${IR_NEGLIGIBLE_PCT}%\` (Ir) / \`${CYCLES_NEGLIGIBLE_PCT}%\` (Cycles) is treated as noise and left uncoloured. Thresholds are configurable via the workflow_dispatch inputs.</sub>"
             else
               echo "_No \`summary.json\` files found under \`target/gungraun/\`._"
             fi
