@@ -70,8 +70,6 @@ jobs:
 
       - name: Cache cargo build artefacts
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ./benchmarks
 
       - name: Setup gungraun-runner and Valgrind
         uses: gungraun/setup-gungraun@v1
@@ -94,7 +92,7 @@ jobs:
             echo "Base ref has no benchmarks/ crate; skipping baseline." >&2
             exit 1
           fi
-          cargo bench --manifest-path benchmarks/Cargo.toml --bench fix_text -- \
+          cargo bench -p plsfix-benchmarks --bench fix_text -- \
             --save-baseline=base
 
       - name: Benchmark PR head (compare against baseline)
@@ -113,11 +111,11 @@ jobs:
         run: |
           git checkout "${{ steps.refs.outputs.head }}"
           if [ "${{ steps.baseline.outcome }}" = "success" ]; then
-            cargo bench --manifest-path benchmarks/Cargo.toml --bench fix_text -- \
+            cargo bench -p plsfix-benchmarks --bench fix_text -- \
               --baseline=base --save-summary=json | tee bench-output.txt
           else
             echo "No baseline available; running PR benchmarks standalone." | tee bench-output.txt
-            cargo bench --manifest-path benchmarks/Cargo.toml --bench fix_text -- \
+            cargo bench -p plsfix-benchmarks --bench fix_text -- \
               --save-summary=json | tee -a bench-output.txt
           fi
 
