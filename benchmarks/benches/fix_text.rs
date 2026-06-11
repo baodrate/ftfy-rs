@@ -1,4 +1,5 @@
 use gungraun::prelude::*;
+use gungraun::{Callgrind, EventKind, FlamegraphConfig};
 use plsfix::fix_text;
 use std::hint::black_box;
 
@@ -28,7 +29,7 @@ fn make_mixed(repeats: usize) -> String {
 #[bench::clean(args = [1], setup = make_clean)]
 #[bench::mojibake(args = [1], setup = make_mojibake)]
 #[bench::mixed(args = [1], setup = make_mixed)]
-fn cold_fix_text(input: String) -> String {
+fn cold(input: String) -> String {
     black_box(fix_text(black_box(&input), None))
 }
 
@@ -38,11 +39,19 @@ fn cold_fix_text(input: String) -> String {
 #[bench::clean(args = [1_000], setup = make_clean)]
 #[bench::mojibake(args = [1_000], setup = make_mojibake)]
 #[bench::mixed(args = [1_000], setup = make_mixed)]
-fn warm_fix_text(input: String) -> String {
+fn warm(input: String) -> String {
     black_box(fix_text(black_box(&input), None))
 }
 
-library_benchmark_group!(name = cold_start, benchmarks = cold_fix_text);
-library_benchmark_group!(name = warm_start, benchmarks = warm_fix_text);
+library_benchmark_group!(name = run, benchmarks = [cold, warm]);
 
-main!(library_benchmark_groups = cold_start, warm_start);
+// CI overrides these soft limits via `GUNGRAUN_CALLGRIND_LIMITS` —
+// the values below are the local-run default.
+main!(
+    config = LibraryBenchmarkConfig::default().tool(
+        Callgrind::default()
+            .soft_limits([(EventKind::Ir, 1.0), (EventKind::EstimatedCycles, 2.0)])
+            .flamegraph(FlamegraphConfig::default())
+    ),
+    library_benchmark_groups = [run]
+);
