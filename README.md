@@ -102,3 +102,7 @@ plsfix aims to match ftfy behavior, but a few things differ:
 - **Byte-based `max_decode_length`.** The segment-length cap counts bytes rather than ftfy's codepoints; the split point is arbitrary either way.
 - **Baltic gap.** `windows-1257` is not yet a candidate codec, so some Baltic-language mojibake that ftfy fixes is left unchanged.
 - **HTML noncharacter refs.** Numeric character references in the Unicode noncharacter ranges (`&#xffff;`, U+FDD0..U+FDEF, …) decode to their codepoint, following WHATWG § 13.2.5.80; ftfy (via Python's `html.unescape`) deletes them.
+
+### Limitations (shared with ftfy)
+
+- **CSI-only terminal escapes.** `remove_terminal_escapes` strips only SGR-style CSI codes (`\x1b[…m`, etc., matching ftfy's `ANSI_RE`). Other escapes — OSC (`\x1b]…`), single-character escapes (`\x1b c`), and private-mode CSI (`\x1b[?25h`) — pass through unchanged.

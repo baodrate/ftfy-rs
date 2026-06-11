@@ -53,7 +53,7 @@ pub fn unescape_html(text: &str) -> Cow<str> {
 }
 
 lazy_static! {
-    static ref ANSI_RE: regex::Regex = regex::Regex::new("\033\\[((?:\\d|;)*)([a-zA-Z])").unwrap();
+    static ref ANSI_RE: regex::Regex = regex::Regex::new("\x1b\\[((?:\\d|;)*)([a-zA-Z])").unwrap();
 }
 
 /// Extension methods for `Regex` that operate on `Cow<str>` instead of `&str`.
@@ -494,7 +494,7 @@ mod tests {
     #[test]
     fn test_remove_escapes_color_text() {
         assert_eq!(
-            remove_terminal_escapes("\033[36;44mI'm blue da ba dee da ba doo...\033[0m"),
+            remove_terminal_escapes("\x1b[36;44mI'm blue da ba dee da ba doo...\x1b[0m"),
             "I'm blue da ba dee da ba doo..."
         );
     }
@@ -515,7 +515,7 @@ mod tests {
     #[test]
     fn test_remove_escapes_mono_color() {
         assert_eq!(
-            remove_terminal_escapes("\033[31mRed Text\033[0m"),
+            remove_terminal_escapes("\x1b[31mRed Text\x1b[0m"),
             "Red Text"
         );
     }
@@ -523,7 +523,7 @@ mod tests {
     #[test]
     fn test_remove_escapes_multiple_colors() {
         assert_eq!(
-            remove_terminal_escapes("\033[31mRed\033[32mGreen\033[34mBlue\033[0m"),
+            remove_terminal_escapes("\x1b[31mRed\x1b[32mGreen\x1b[34mBlue\x1b[0m"),
             "RedGreenBlue"
         );
     }
@@ -531,7 +531,7 @@ mod tests {
     #[test]
     fn test_remove_escapes_background_color() {
         assert_eq!(
-            remove_terminal_escapes("\033[41mRed background\033[0m"),
+            remove_terminal_escapes("\x1b[41mRed background\x1b[0m"),
             "Red background"
         );
     }
@@ -539,7 +539,7 @@ mod tests {
     #[test]
     fn test_remove_escapes_formatting() {
         assert_eq!(
-            remove_terminal_escapes("\033[1mBold\033[22mNormal\033[0m"),
+            remove_terminal_escapes("\x1b[1mBold\x1b[22mNormal\x1b[0m"),
             "BoldNormal"
         );
     }
@@ -547,7 +547,7 @@ mod tests {
     #[test]
     fn test_remove_escapes_cursor_movement() {
         assert_eq!(
-            remove_terminal_escapes("\033[5ACursor moved\033[0m"),
+            remove_terminal_escapes("\x1b[5ACursor moved\x1b[0m"),
             "Cursor moved"
         );
     }
@@ -555,7 +555,7 @@ mod tests {
     #[test]
     fn test_remove_escapes_multiple_sequences() {
         assert_eq!(
-            remove_terminal_escapes("\033[31mRed\033[0m and \033[34mBlue\033[0m"),
+            remove_terminal_escapes("\x1b[31mRed\x1b[0m and \x1b[34mBlue\x1b[0m"),
             "Red and Blue"
         );
     }
@@ -563,7 +563,7 @@ mod tests {
     #[test]
     fn test_remove_escapes_multiple_lines() {
         assert_eq!(
-            remove_terminal_escapes("\033[1mFirst Line\033[0m\n\033[4mSecond Line\033[0m"),
+            remove_terminal_escapes("\x1b[1mFirst Line\x1b[0m\n\x1b[4mSecond Line\x1b[0m"),
             "First Line\nSecond Line"
         );
     }
