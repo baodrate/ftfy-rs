@@ -1,9 +1,12 @@
 use rustc_hash::FxHashMap;
-use unicode_normalization::UnicodeNormalization;
 
 use regex::Regex;
 
-pub use crate::utf8::UTF8_CONTINUATION_STRICT_SET;
+// `build.rs` generates the `chardata_generated` module: the `UPPER_ALIASES`
+// HTML-entity map, `UTF8_CONTINUATION_STRICT_SET`, and the `lookup_width`
+// width-folding match. Re-export them so the rest of the crate reaches them
+// through `chardata`.
+pub use crate::chardata_generated::{lookup_width, UPPER_ALIASES, UTF8_CONTINUATION_STRICT_SET};
 
 use crate::codecs::sloppy::{
     Codec, CodecType, CP437, ISO_8859_2, LATIN_1, MACROMAN, SLOPPY_WINDOWS_1250,
@@ -21,6 +24,69 @@ pub fn possible_encoding(text: &str, encoding: CodecType) -> bool {
     */
     ENCODING_REGEXES[&encoding].is_match(text.as_bytes())
 }
+
+/*
+A translate mapping that breaks ligatures made of Latin letters. While
+ligatures may be important to the representation of other languages, in Latin
+letters they tend to represent a copy/paste error. It omits ligatures such
+as æ that are frequently used intentionally.
+
+This list additionally includes some Latin digraphs that represent two
+characters for legacy encoding reasons, not for typographical reasons.
+
+Ligatures and digraphs may also be separated by NFKC normalization, but that
+is sometimes more normalization than you want.
+*/
+pub const fn lookup_ligature(c: char) -> Option<&'static str> {
+    match c {
+        'Ĳ' => Some("IJ"), // Dutch ligatures
+        'ĳ' => Some("ij"),
+        'ŉ' => Some("ʼn"), // Afrikaans digraph meant to avoid auto-curled quote
+        'Ǳ' => Some("DZ"), // Serbian/Croatian digraphs for Cyrillic conversion
+        'ǲ' => Some("Dz"),
+        'ǳ' => Some("dz"),
+        'Ǆ' => Some("DŽ"),
+        'ǅ' => Some("Dž"),
+        'ǆ' => Some("dž"),
+        'Ǉ' => Some("LJ"),
+        'ǈ' => Some("Lj"),
+        'ǉ' => Some("lj"),
+        'Ǌ' => Some("NJ"),
+        'ǋ' => Some("Nj"),
+        'ǌ' => Some("nj"),
+        'ﬀ' => Some("ff"), // Latin typographical ligatures
+        'ﬁ' => Some("fi"),
+        'ﬂ' => Some("fl"),
+        'ﬃ' => Some("ffi"),
+        'ﬄ' => Some("ffl"),
+        'ﬅ' => Some("ſt"),
+        'ﬆ' => Some("st"),
+        _ => None,
+    }
+}
+
+/*
+The character classes that UTF8_DETECTOR_RE is built from, keyed the same way
+as ftfy's UTF8_CLUES dict. The per-character `encoding:byte` annotations that
+document where each character comes from live in the test that pins this map to
+ftfy (see test_utf8_clues_match_ftfy).
+*/
+static UTF8_CLUES: phf::Map<&'static str, &'static str> = phf::phf_map! {
+    // Letters that decode to 0xC2 - 0xDF in a Latin-1-like encoding
+    "utf8_first_of_2" => "ĂÂÄĀÅÃÆĆČÇĎĐÉĚÊËĖÈĒĘÐĞĢÍÎÏİÌĪĶĹĻŁŃŇŅÑÓÔÖŐÒŌØÕŘŚŠŞŢÞÚÛÜŰÙŪŲŮÝŹŽŻß×ΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩΪΫάέήίВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ",
+    // Letters that decode to 0xE0 - 0xEF in a Latin-1-like encoding
+    "utf8_first_of_3" => "áăâäàāąåãæćčçďéěêëėèēęęģíîïìīįķĺļŕźΰαβγδεζηθικλμνξοабвгдежзийклмноп",
+    // Letters that decode to 0xF0 or 0xF3 in a Latin-1-like encoding.
+    // (Other leading bytes correspond only to unassigned codepoints)
+    "utf8_first_of_4" => "đðğóšπσру",
+    // Letters that decode to 0x80 - 0xBF in a Latin-1-like encoding,
+    // including a space (`\u{20}`) standing in for 0xA0
+    "utf8_continuation" => r"\x80-\xbf\u{20}ĄÆĽŁØŖŚŠŞŤŸŹŽŻŒąæƒľłøŗśšşťźžżœˆˇ˘˛˜˝΄΅ΆΈΉΊΌΎΏЁЂЃЄЅІЇЈЉЊЋЌЎЏёђѓєѕіїјљњћќўџҐґ–—―‘’‚“”„†‡•…‰‹›€№™",
+    // Letters that decode to 0x80 - 0xBF in a Latin-1-like encoding,
+    // and don't usually stand for themselves when adjacent to mojibake.
+    // This excludes spaces, dashes, 'bullet', quotation marks, and ellipses.
+    "utf8_continuation_strict" => r"\x80-\xbfĄÆĽŁØŖŚŠŞŤŸŹŽŻŒąæƒľłøŗśšşťźžżœˆˇ˘˛˜˝΄΅ΆΈΉΊΌΎΏЁЂЃЄЅІЇЈЉЊЋЌЎЏёђѓєѕіїјљњћќўџҐґ†‡‰‹›€№™",
+};
 
 lazy_static! {
     pub static ref CHARMAP_ENCODINGS: Vec<(CodecType, &'static dyn Codec)> = {
@@ -191,93 +257,6 @@ lazy_static! {
     */
     pub static ref C1_CONTROL_RE: regex::Regex =
         regex::Regex::new(r"[\x80-\x9f]").unwrap();
-
-    /*
-    A translate mapping that breaks ligatures made of Latin letters. While
-    ligatures may be important to the representation of other languages, in Latin
-    letters they tend to represent a copy/paste error. It omits ligatures such
-    as æ that are frequently used intentionally.
-
-    This list additionally includes some Latin digraphs that represent two
-    characters for legacy encoding reasons, not for typographical reasons.
-
-    Ligatures and digraphs may also be separated by NFKC normalization, but that
-    is sometimes more normalization than you want.
-    */
-    pub static ref LIGATURES: FxHashMap<u32, &'static str> = {
-        let mut ligatures: FxHashMap<u32, &str> = FxHashMap::default();
-
-        ligatures.insert('Ĳ' as u32, "IJ"); // Dutch ligatures
-        ligatures.insert('ĳ' as u32, "ij");
-        ligatures.insert('ŉ' as u32, "ʼn"); // Afrikaans digraph meant to avoid auto-curled quote
-        ligatures.insert('Ǳ' as u32, "DZ"); // Serbian/Croatian digraphs for Cyrillic conversion
-        ligatures.insert('ǲ' as u32, "Dz");
-        ligatures.insert('ǳ' as u32, "dz");
-        ligatures.insert('Ǆ' as u32, "DŽ");
-        ligatures.insert('ǅ' as u32, "Dž");
-        ligatures.insert('ǆ' as u32, "dž");
-        ligatures.insert('Ǉ' as u32, "LJ");
-        ligatures.insert('ǈ' as u32, "Lj");
-        ligatures.insert('ǉ' as u32, "lj");
-        ligatures.insert('Ǌ' as u32, "NJ");
-        ligatures.insert('ǋ' as u32, "Nj");
-        ligatures.insert('ǌ' as u32, "nj");
-        ligatures.insert('ﬀ' as u32, "ff"); // Latin typographical ligatures
-        ligatures.insert('ﬁ' as u32, "fi");
-        ligatures.insert('ﬂ' as u32, "fl");
-        ligatures.insert('ﬃ' as u32, "ffi");
-        ligatures.insert('ﬄ' as u32, "ffl");
-        ligatures.insert('ﬅ' as u32, "ſt");
-        ligatures.insert('ﬆ' as u32, "st");
-
-        ligatures
-    };
-
-    pub static ref WIDTH_MAP: FxHashMap<u32, char> = {
-        let mut width_map: FxHashMap<u32, char> = FxHashMap::default();
-        // Though it's not listed as a fullwidth character, we'll want to convert
-        // U+3000 IDEOGRAPHIC SPACE to U+20 SPACE on the same principle, so start
-        // with that in the dictionary.
-        width_map.insert(0x3000, ' ');
-
-        for i in 0xFF01..0xFFF0 {
-            if let Some(ci) = std::char::from_u32(i) {
-                let alternate = ci.nfkc().next();
-                if let Some(c) = alternate {
-                    if c != ci {
-                        width_map.insert(i, c);
-                    }
-                }
-            }
-        }
-        width_map
-    };
-
-
-    /*
-    The character classes that UTF8_DETECTOR_RE is built from, keyed the same way
-    as ftfy's UTF8_CLUES dict. The per-character `encoding:byte` annotations that
-    document where each character comes from live in the test that pins this map to
-    ftfy (see test_utf8_clues_match_ftfy).
-    */
-    static ref UTF8_CLUES: FxHashMap<&'static str, &'static str> = {
-        let mut m = FxHashMap::default();
-        // Letters that decode to 0xC2 - 0xDF in a Latin-1-like encoding
-        m.insert("utf8_first_of_2", "ĂÂÄĀÅÃÆĆČÇĎĐÉĚÊËĖÈĒĘÐĞĢÍÎÏİÌĪĶĹĻŁŃŇŅÑÓÔÖŐÒŌØÕŘŚŠŞŢÞÚÛÜŰÙŪŲŮÝŹŽŻß×ΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩΪΫάέήίВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ");
-        // Letters that decode to 0xE0 - 0xEF in a Latin-1-like encoding
-        m.insert("utf8_first_of_3", "áăâäàāąåãæćčçďéěêëėèēęęģíîïìīįķĺļŕźΰαβγδεζηθικλμνξοабвгдежзийклмноп");
-        // Letters that decode to 0xF0 or 0xF3 in a Latin-1-like encoding.
-        // (Other leading bytes correspond only to unassigned codepoints)
-        m.insert("utf8_first_of_4", "đðğóšπσру");
-        // Letters that decode to 0x80 - 0xBF in a Latin-1-like encoding,
-        // including a space (`\u{20}`) standing in for 0xA0
-        m.insert("utf8_continuation", r"\x80-\xbf\u{20}ĄÆĽŁØŖŚŠŞŤŸŹŽŻŒąæƒľłøŗśšşťźžżœˆˇ˘˛˜˝΄΅ΆΈΉΊΌΎΏЁЂЃЄЅІЇЈЉЊЋЌЎЏёђѓєѕіїјљњћќўџҐґ–—―‘’‚“”„†‡•…‰‹›€№™");
-        // Letters that decode to 0x80 - 0xBF in a Latin-1-like encoding,
-        // and don't usually stand for themselves when adjacent to mojibake.
-        // This excludes spaces, dashes, 'bullet', quotation marks, and ellipses.
-        m.insert("utf8_continuation_strict", r"\x80-\xbfĄÆĽŁØŖŚŠŞŤŸŹŽŻŒąæƒľłøŗśšşťźžżœˆˇ˘˛˜˝΄΅ΆΈΉΊΌΎΏЁЂЃЄЅІЇЈЉЊЋЌЎЏёђѓєѕіїјљњћќўџҐґ†‡‰‹›€№™");
-        m
-    };
 
     /*
     This regex uses UTF8_CLUES to find sequences of likely mojibake.
@@ -787,7 +766,7 @@ mod tests {
         .collect();
 
         let ours: std::collections::BTreeMap<&str, String> = UTF8_CLUES
-            .iter()
+            .entries()
             .map(|(&name, &class)| (name, class.to_string()))
             .collect();
 

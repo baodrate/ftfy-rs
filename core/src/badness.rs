@@ -11,37 +11,31 @@ identify sequences and contexts of these characters that are much more likely
 to be mojibake than intended strings, such as lowercase accented letters
 followed immediately by currency symbols.
 */
-use rustc_hash::FxHashMap;
+// `regex` crate's verbose mode strips whitespace, so use regex escapes rather than raw chars
+static WS_PATTERNS: phf::Map<&'static str, &'static str> = phf::phf_map! {
+    "sp" => "\\u{20}",
+    "nbsp" => "\\u{a0}",
+    "soft_hyphen" => "\\u{ad}",
+};
+
+static MOJIBAKE_CATEGORIES: phf::Map<&'static str, &'static str> = phf::phf_map! {
+    "common" => "\\u{a0}\u{ad}\u{b7}\u{b4}\u{2013}\u{2014}\u{2015}\u{2026}\u{2019}",
+    "c1" => "\u{80}-\u{9f}",
+    "bad" => "¦¤¨¬¯¸ƒˆˇ˘˛˜†‡‰⌐◊�ªº",
+    "law" => "¶§",
+    "currency" => "¢£¥₧€",
+    "start_punctuation" => "¡«¿©΄΅‘‚“„•‹\u{f8ff}",
+    "end_punctuation" => "®»˝”›™",
+    "numeric" => "²³¹±¼½¾×µ÷⁄∂∆∏∑√∞∩∫≈≠≡≤≥№",
+    "kaomoji" => "Ò-ÖÙ-Üò-öø-üŐŌŪŲ°",
+    "upper_accented" => "À-ÑØÜÝĂĀĄĆČĎĐĘĚĒĖĞĢİĪĶĹĽŁĻŃŇŅŒŘŚŞŠŢŤŮŰŸŹŻŽҐ",
+    "lower_accented" => "ßà-ñăąāćčďđęěēėğģįīķĺľłļœŕśşšťüźżžґﬁﬂ",
+    "upper_common" => "ÞΑ-ΩΆΈΉΊΌΎΏΪΫЁ-Я",
+    "lower_common" => "α-ωάέήίΰа-џ",
+    "box" => "│┌┐┘├┤┬┼═-╬▀▄█▌▐░▒▓",
+};
 
 lazy_static! {
-    // `regex` crate's verbose mode strips whitespace, so use regex escapes rather than raw chars
-    static ref WS_PATTERNS: FxHashMap<&'static str, &'static str> = {
-        let mut m = FxHashMap::default();
-        m.insert("sp", "\\u{20}");
-        m.insert("nbsp", "\\u{a0}");
-        m.insert("soft_hyphen", "\\u{ad}");
-        m
-    };
-
-    static ref MOJIBAKE_CATEGORIES: FxHashMap<&'static str, &'static str> = {
-        let mut m = FxHashMap::default();
-        m.insert("common", "\\u{a0}\u{ad}\u{b7}\u{b4}\u{2013}\u{2014}\u{2015}\u{2026}\u{2019}");
-        m.insert("c1", "\u{80}-\u{9f}");
-        m.insert("bad", "¦¤¨¬¯¸ƒˆˇ˘˛˜†‡‰⌐◊�ªº");
-        m.insert("law", "¶§");
-        m.insert("currency", "¢£¥₧€");
-        m.insert("start_punctuation", "¡«¿©΄΅‘‚“„•‹\u{f8ff}");
-        m.insert("end_punctuation", "®»˝”›™");
-        m.insert("numeric", "²³¹±¼½¾×µ÷⁄∂∆∏∑√∞∩∫≈≠≡≤≥№");
-        m.insert("kaomoji", "Ò-ÖÙ-Üò-öø-üŐŌŪŲ°");
-        m.insert("upper_accented", "À-ÑØÜÝĂĀĄĆČĎĐĘĚĒĖĞĢİĪĶĹĽŁĻŃŇŅŒŘŚŞŠŢŤŮŰŸŹŻŽҐ");
-        m.insert("lower_accented", "ßà-ñăąāćčďđęěēėğģįīķĺľłļœŕśşšťüźżžґﬁﬂ");
-        m.insert("upper_common", "ÞΑ-ΩΆΈΉΊΌΎΏΪΫЁ-Я");
-        m.insert("lower_common", "α-ωάέήίΰа-џ");
-        m.insert("box", "│┌┐┘├┤┬┼═-╬▀▄█▌▐░▒▓");
-        m
-    };
-
     /*
     We can now build a regular expression that detects unlikely juxtapositions
     of characters, mostly based on their categories.
@@ -899,7 +893,7 @@ mod tests {
         .collect();
 
         let ours: std::collections::BTreeMap<&str, String> = MOJIBAKE_CATEGORIES
-            .iter()
+            .entries()
             .map(|(&name, &class)| (name, class.to_string()))
             .collect();
 
