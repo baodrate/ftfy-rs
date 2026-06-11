@@ -1,4 +1,4 @@
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use unicode_normalization::UnicodeNormalization;
 
 use regex::Regex;
@@ -106,37 +106,6 @@ lazy_static! {
     };
 
     pub static ref HTML_ENTITY_RE: Regex = Regex::new(r"&#?[0-9A-Za-z]{1,24};").unwrap();
-
-    pub static ref CONTROL_CHARS: FxHashSet<u32> ={
-        /*
-        Build a translate mapping that strips likely-unintended control characters.
-        See `plsfix::fixes::remove_control_chars` for a description of these
-        codepoint ranges and why they should be removed.
-        */
-        let mut control_chars: FxHashSet<u32> = FxHashSet::default();
-
-        let ranges = vec![
-            0x00..0x09,
-            0x0B..0x0C,
-            0x0E..0x20,
-            0x7F..0x80,
-            0x206A..0x2070,
-            0xFFF9..0xFFFD,
-        ];
-
-        for range in ranges {
-            for i in range {
-                control_chars.insert(i);
-            }
-        }
-
-        control_chars.insert(0x0B);
-        control_chars.insert(0x7F);
-        control_chars.insert(0xFEFF);
-
-        control_chars
-    };
-
 
     /*
     Recognize UTF-8 sequences that would be valid if it weren't for a b'\xa0'
@@ -350,6 +319,24 @@ lazy_static! {
     )
     .expect("Failed to compile the regex")
     };
+}
+
+/// Likely-unintended control characters to be stripped.
+///
+/// See [`crate::fixes::remove_control_chars`] for a description of these codepoint ranges and why
+/// they should be removed.
+#[inline]
+pub const fn is_control_char(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00}'..='\u{08}'
+            | '\u{0B}'
+            | '\u{0E}'..='\u{1F}'
+            | '\u{7F}'
+            | '\u{206A}'..='\u{206F}'
+            | '\u{FFF9}'..='\u{FFFC}'
+            | '\u{FEFF}'
+    )
 }
 
 #[cfg(test)]
