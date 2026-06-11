@@ -1,4 +1,5 @@
 use gungraun::prelude::*;
+use gungraun::{Callgrind, EventKind};
 use plsfix::fix_text;
 use std::hint::black_box;
 
@@ -45,4 +46,14 @@ fn warm_fix_text(input: String) -> String {
 library_benchmark_group!(name = cold_start, benchmarks = cold_fix_text);
 library_benchmark_group!(name = warm_start, benchmarks = warm_fix_text);
 
-main!(library_benchmark_groups = cold_start, warm_start);
+// Soft limits make `cargo bench` exit non-zero when a benchmark regresses past
+// the threshold, while still emitting `summary.json` so CI can post the diff
+// table. Callgrind counts are deterministic, so Ir tolerates a tight 5%; the
+// estimated cycle figure folds in cache modelling and varies more, hence 10%.
+main!(
+    config = LibraryBenchmarkConfig::default().tool(
+        Callgrind::default()
+            .soft_limits([(EventKind::Ir, 5.0), (EventKind::EstimatedCycles, 10.0)])
+    ),
+    library_benchmark_groups = [cold_start, warm_start]
+);

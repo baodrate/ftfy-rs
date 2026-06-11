@@ -84,49 +84,53 @@ jobs:
           # BenchmarkSummary with metrics at
           #   profiles[i].summaries.parts[j].metrics_summary.Callgrind
           # — a MetricsSummary keyed by metric name (Ir, EstimatedCycles, …).
-          # Each metric value is wrapped: `{"Int": 1234}` or `{"Float": 1.2}`.
-          # For EitherOrBoth.Both the gungraun convention is "left is `new`,
-          # right is `old`" — so Both[0] is the PR-head value and Both[1] is
-          # the baseline. diff_pct is a stringified percentage value (e.g.
-          # "-12.34" → -12.34%), serialized as a string to preserve `inf`.
+          # diff_pct is a stringified percentage (e.g. "-12.34" → -12.34%),
+          # serialized as a string to preserve `inf`. We only surface the
+          # delta — raw counts live in the full-output collapsible below.
+          #
+          # Colour thresholds (|Δ%|):
+          #   <  NEGLIGIBLE_PCT      → plain text, no colour
+          #   <  per-metric bold pct → coloured (green = faster, red = slower)
+          #   >= per-metric bold pct → coloured AND bold
+          # The bold cutoff matches that metric's soft-limit (declared in
+          # benchmarks/benches/fix_text.rs) so bold ≡ "this is what failed
+          # the job". Rendered via GitHub's KaTeX inline-math syntax, which
+          # is the only way to get colour in a PR-comment markdown table.
           read -r -d '' JQ_PROG <<'JQ' || true
-          def unwrap(v): if v == null then null else (v.Int // v.Float // null) end;
-          def new_value(m):
-            m.metrics
-            | unwrap(.Both[0] // .Left // .Right // null);
-          def base_value(m):
-            m.metrics
-            | unwrap(.Both[1] // .Right // null);
-          def fmt_num(n):
-            if n == null then "—" else (n|tostring) end;
-          def fmt_pct(s):
+          def NEGLIGIBLE_PCT: 1.0;
+          def fmt_pct(s; bold_pct):
             if s == null then "—"
-            elif (s | tostring | test("inf"; "i")) then (s | tostring)
+            elif (s | tostring | test("inf"; "i")) then
+              "$\\color{red}\\textbf{" + (s | tostring) + "}$"
             else
-              try (
-                (s | tonumber) as $n
-                | (if $n > 0 then "+" else "" end)
-                  + (($n * 100 | round) / 100 | tostring)
-                  + "%"
-              ) catch (s | tostring)
+              (try (s | tonumber) catch null) as $n
+              | if $n == null then (s | tostring)
+                else
+                  (if $n < 0 then -$n else $n end) as $abs
+                  | (if $n > 0 then "+" else "" end) as $sign
+                  | (($n * 100 | round) / 100) as $rounded
+                  | ($sign + ($rounded | tostring)) as $num
+                  | if $abs < NEGLIGIBLE_PCT then $num + "%"
+                    elif $abs >= bold_pct then
+                      (if $n > 0
+                       then "$\\color{red}\\textbf{" + $num + "\\%}$"
+                       else "$\\color{green}\\textbf{" + $num + "\\%}$" end)
+                    else
+                      (if $n > 0
+                       then "$\\color{red}{" + $num + "\\%}$"
+                       else "$\\color{green}{" + $num + "\\%}$" end)
+                    end
+                end
             end;
           . as $b
           | ($b.profiles[0].summaries.parts[0].metrics_summary.Callgrind // {}) as $ms
-          | {
-              name: (
-                ($b.module_path // "")
-                + (if (($b.id // "") | tostring) != "" then " " + ($b.id|tostring) else "" end)
-              ),
-              ir_new:     fmt_num(new_value($ms.Ir // {})),
-              ir_base:    fmt_num(base_value($ms.Ir // {})),
-              ir_pct:     fmt_pct((($ms.Ir // {}).diffs // {}).diff_pct),
-              cy_new:     fmt_num(new_value($ms.EstimatedCycles // {})),
-              cy_base:    fmt_num(base_value($ms.EstimatedCycles // {})),
-              cy_pct:     fmt_pct((($ms.EstimatedCycles // {}).diffs // {}).diff_pct),
-            }
-          | "| `" + .name + "` | "
-            + .ir_new + " | " + .ir_base + " | " + .ir_pct + " | "
-            + .cy_new + " | " + .cy_base + " | " + .cy_pct + " |"
+          | (
+              ($b.module_path // "")
+              + (if (($b.id // "") | tostring) != "" then " " + ($b.id|tostring) else "" end)
+            ) as $name
+          | "| `" + $name + "` | "
+            + fmt_pct((($ms.Ir // {}).diffs // {}).diff_pct; 5.0) + " | "
+            + fmt_pct((($ms.EstimatedCycles // {}).diffs // {}).diff_pct; 10.0) + " |"
           JQ
 
           {
@@ -137,11 +141,13 @@ jobs:
             fi
             echo
             if [ "${#summaries[@]}" -gt 0 ]; then
-              echo "| Benchmark | Ir (PR) | Ir (base) | ΔIr | Cycles (PR) | Cycles (base) | ΔCycles |"
-              echo "|---|---:|---:|---:|---:|---:|---:|"
+              echo "| Benchmark | ΔIr | ΔCycles |"
+              echo "|---|---:|---:|"
               for f in "${summaries[@]}"; do
                 jq -r "$JQ_PROG" "$f"
               done
+              echo
+              echo "<sub>Green = faster, red = slower. Bold marks a regression past the soft-limit threshold (Ir ≥ 5%, Cycles ≥ 10%); benchmark runs that breach the threshold fail the job.</sub>"
             else
               echo "_No \`summary.json\` files found under \`target/gungraun/\`._"
             fi
