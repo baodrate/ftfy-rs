@@ -3,9 +3,8 @@ extern crate lazy_static;
 
 mod badness;
 mod chardata;
+mod chardata_generated;
 mod fixes;
-mod html_entities;
-mod utf8;
 
 mod codecs;
 
