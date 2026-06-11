@@ -265,12 +265,13 @@ lazy_static! {
     every word. The cost is that the mojibake text "fÃ cil" will be interpreted as
     "fà cil", not "fàcil".
     */
+    // ftfy: `b"\xc3 (?! |quele|quela|quilo|s )"`. The `regex` crate has no
+    // lookahead, so match the two-byte prefix and check the exceptions manually.
     static ref A_GRAVE_WORD_RE: regex::bytes::Regex =
-        regex::bytes::Regex::new(r"(?-u:\xc3 [^ ]* ?)").unwrap();
-
-    static ref A_GRAVE_NEGATIVE_RE: regex::bytes::Regex =
-        regex::bytes::Regex::new(r"^(?-u:\xc3 ( |quele|quela|quilo|s ))").unwrap();
+        regex::bytes::Regex::new(r"(?-u:\xc3 )").unwrap();
 }
+
+static A_GRAVE_EXCEPTIONS: &[&[u8]] = &[b" ", b"quele", b"quela", b"quilo", b"s "];
 
 pub fn restore_byte_a0(byts: &[u8]) -> Vec<u8> {
     /*
@@ -286,31 +287,33 @@ pub fn restore_byte_a0(byts: &[u8]) -> Vec<u8> {
 
     This is used as a step within `fix_encoding`.
     */
-    let byts = A_GRAVE_WORD_RE.replace_all(&byts, |captures: &regex::bytes::Captures| {
-        let mut result = captures[0].to_owned(); // Clone the captured bytes
-
-        if A_GRAVE_NEGATIVE_RE.is_match(&result) {
-            return result;
+    // Stage 1: rewrite `\xc3 ` → `\xc3\xa0 ` unless the bytes following the
+    // match are in the exception list — emulating ftfy's negative lookahead.
+    // Returning the captured bytes unchanged is equivalent to the lookahead
+    // suppressing the substitution; the engine then advances by the match
+    // length, which can't skip a real `\xc3 ` because byts[end-1] is a space.
+    let stage1 = A_GRAVE_WORD_RE.replace_all(byts, |caps: &regex::bytes::Captures| {
+        let end = caps.get(0).unwrap().end();
+        if A_GRAVE_EXCEPTIONS
+            .iter()
+            .any(|ex| byts[end..].starts_with(ex))
+        {
+            caps[0].to_vec()
+        } else {
+            b"\xc3\xa0 ".to_vec()
         }
-
-        result[0] = b'\xc3';
-        result[1] = b'\xa0';
-        result.insert(2, b' ');
-
-        result
     });
 
-    let byts = ALTERED_UTF8_RE.replace_all(&byts, |captures: &regex::bytes::Captures| {
-        let mut result = captures[0].to_owned(); // Clone the captured bytes
-        for byte in &mut result {
-            if *byte == b'\x20' {
-                *byte = b'\xa0';
-            }
-        }
-        result
-    });
-
-    byts.to_vec()
+    // Stage 2: any remaining sequence that would decode as UTF-8 if its
+    // spaces were `\xa0` gets those spaces restored.
+    ALTERED_UTF8_RE
+        .replace_all(&stage1, |caps: &regex::bytes::Captures| {
+            caps[0]
+                .iter()
+                .map(|&b| if b == b'\x20' { b'\xa0' } else { b })
+                .collect::<Vec<u8>>()
+        })
+        .into_owned()
 }
 
 pub fn replace_lossy_sequences(byts: &Vec<u8>) -> Vec<u8> {
