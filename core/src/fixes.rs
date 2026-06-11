@@ -1,8 +1,9 @@
 use crate::{
     badness::is_bad,
     chardata::{
-        ALTERED_UTF8_RE, C1_CONTROL_RE, CONTROL_CHARS, DOUBLE_QUOTE_RE, HTML_ENTITY_RE, LIGATURES,
-        LOSSY_UTF8_RE, SINGLE_QUOTE_RE, UTF8_CONTINUATION_STRICT_SET, UTF8_DETECTOR_RE, WIDTH_MAP,
+        is_control_char, ALTERED_UTF8_RE, C1_CONTROL_RE, DOUBLE_QUOTE_RE, HTML_ENTITY_RE,
+        LIGATURES, LOSSY_UTF8_RE, SINGLE_QUOTE_RE, UTF8_CONTINUATION_STRICT_SET, UTF8_DETECTOR_RE,
+        WIDTH_MAP,
     },
     codecs::sloppy::{Codec, LATIN_1, SLOPPY_WINDOWS_1252},
     fix_encoding_and_explain,
@@ -229,19 +230,14 @@ pub fn remove_control_chars(text: &str) -> Cow<str> {
     - Tag characters, because they are now used in emoji sequences such as
       "Flag of Wales"
       */
-    if !text.chars().any(|ch| CONTROL_CHARS.contains(&(ch as u32))) {
-        return Cow::Borrowed(text);
+    if let Some((idx, _)) = text.char_indices().find(|(_, ch)| is_control_char(*ch)) {
+        let mut result = String::with_capacity(text.len());
+        result.push_str(&text[..idx]);
+        result.extend(text[idx..].chars().filter(|ch| !is_control_char(*ch)));
+        Cow::Owned(result)
+    } else {
+        Cow::Borrowed(text)
     }
-
-    let mut result = String::new();
-
-    for ch in text.chars() {
-        if !CONTROL_CHARS.contains(&(ch as u32)) {
-            result.push(ch);
-        }
-    }
-
-    Cow::Owned(result)
 }
 
 lazy_static! {
@@ -884,6 +880,21 @@ mod tests {
         let text = "\u{feff}Sometimes, \u{fffc}bad ideas \u{7f}\u{fffa}like these characters\u{fffb} \u{206a}get standardized.\r\n";
         let fixed = "Sometimes, bad ideas like these characters get standardized.\r\n";
         assert_eq!(remove_control_chars(text), fixed);
+    }
+
+    #[test]
+    fn test_remove_control_chars_borrows_clean_text() {
+        let s = "Hello,\r\n World!";
+        let out = remove_control_chars(s);
+        assert!(matches!(out, Cow::Borrowed(_)));
+        assert_eq!(out, s);
+    }
+
+    #[test]
+    fn test_remove_control_chars_owns_when_stripping() {
+        let out = remove_control_chars("Hello\u{206A}World");
+        assert!(matches!(out, Cow::Owned(_)));
+        assert_eq!(out, "HelloWorld");
     }
 
     // Ported from ftfy's `tests/test_characters.py::test_welsh_flag`. ftfy used
