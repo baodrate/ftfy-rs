@@ -362,3 +362,45 @@ lazy_static! {
         codec_type: CodecType::Cp437,
     };
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every base encoding fed into `make_sloppy_codec` must decode each
+    /// single byte to at most one codepoint — otherwise the `.next()` in
+    /// `make_sloppy_codec` would silently truncate (cf. the U+FFE3
+    /// `WIDTH_MAP` divergence). Single-byte codecs satisfy this by
+    /// construction; this test pins the property in case `encoding_rs`
+    /// ever decides to emit a BOM or a multi-codepoint sequence.
+    #[test]
+    fn test_base_encodings_are_single_codepoint_per_byte() {
+        let base_encodings: &[(&str, &'static Encoding)] = &[
+            ("windows-1250", &WINDOWS_1250),
+            ("windows-1251", &WINDOWS_1251),
+            ("windows-1252", &WINDOWS_1252Base),
+            ("windows-1253", &WINDOWS_1253),
+            ("windows-1254", &WINDOWS_1254),
+            ("windows-1255", &WINDOWS_1255),
+            ("windows-1256", &WINDOWS_1256),
+            ("windows-1257", &WINDOWS_1257),
+            ("windows-1258", &WINDOWS_1258),
+            ("iso-8859-3", &ISO_8859_3),
+            ("iso-8859-6", &ISO_8859_6),
+            ("iso-8859-7", &ISO_8859_7),
+            ("iso-8859-8", &ISO_8859_8),
+        ];
+        for (name, enc) in base_encodings {
+            for byte in 0u8..=255 {
+                let bytes = [byte];
+                let decoded = enc.decode(&bytes).0;
+                let count = decoded.chars().count();
+                assert!(
+                    count <= 1,
+                    "{name} decoded byte {byte:#04x} to {count} codepoints ({decoded:?}); \
+                     make_sloppy_codec would truncate via `.next()`",
+                );
+            }
+        }
+    }
+}
