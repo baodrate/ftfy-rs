@@ -530,24 +530,21 @@ fn fix_encoding_and_explain(
 
     let mut prev_text = text.to_string();
 
-    let plan_so_far = if explain { Some(Vec::new()) } else { None };
+    let mut plan_so_far = if explain { Some(Vec::new()) } else { None };
 
     for _ in 0..MAX_ATTEMPTS {
         let new_text = _fix_encoding_one_step_and_explain(&prev_text, explain, &config);
 
+        // Extend the plan on every iteration before checking convergence so
+        // steps from intermediate (text-changing) iterations are preserved.
+        if let (Some(plan), Some(step_plan)) = (plan_so_far.as_mut(), new_text.steps) {
+            plan.extend(step_plan);
+        }
+
         if new_text.text == prev_text {
-            if let Some(mut plan) = plan_so_far {
-                plan.extend(new_text.steps.unwrap_or(Vec::new()));
-
-                return ExplainedText {
-                    text: new_text.text,
-                    steps: Some(plan),
-                };
-            }
-
             return ExplainedText {
                 text: new_text.text,
-                steps: None,
+                steps: plan_so_far,
             };
         }
 
@@ -556,7 +553,7 @@ fn fix_encoding_and_explain(
 
     ExplainedText {
         text: prev_text,
-        steps: None,
+        steps: plan_so_far,
     }
 }
 
@@ -677,10 +674,20 @@ fn _fix_encoding_one_step_and_explain(
     }
 
     // Look for a-hat-euro sequences that remain, and fix them in isolation.
+    // On a fix, record the step and return early so a downstream branch can
+    // not mis-label this transformation.
     if config.decode_inconsistent_utf8 {
         let fixed = decode_inconsistent_utf8(&text);
         if fixed != text {
-            text = fixed.into();
+            let steps = explain.then(|| {
+                vec![ExplanationStep {
+                    transformation: String::from("decode_inconsistent_utf8"),
+                }]
+            });
+            return ExplainedText {
+                text: fixed.into(),
+                steps,
+            };
         }
     }
 
