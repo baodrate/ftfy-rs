@@ -2119,4 +2119,24 @@ mod ftfy_test_entities {
             "expected an `unescape_html` step, got {steps:?}"
         );
     }
+
+    // When `decode_inconsistent_utf8` fixes a stray a-hat-euro sequence, ftfy
+    // records an `('apply', 'decode_inconsistent_utf8')` step on the
+    // returned plan (the full ftfy step list on this input is
+    // `[decode_inconsistent_utf8, uncurl_quotes]`).
+    #[test]
+    fn test_decode_inconsistent_utf8_records_explanation_step() {
+        let explained = fix_and_explain("â€œHelloâ€", true, None);
+        let steps: Vec<&str> = explained
+            .steps
+            .as_deref()
+            .unwrap()
+            .iter()
+            .map(|s| s.transformation.as_str())
+            .collect();
+        assert!(
+            steps.contains(&"decode_inconsistent_utf8"),
+            "expected a `decode_inconsistent_utf8` step, got {steps:?}",
+        );
+    }
 }
