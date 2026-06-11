@@ -1,12 +1,13 @@
-//! Generate `lookup_upper_alias` — a `hashify::tiny_map!` perfect-hash for
-//! ftfy's ALL-CAPS HTML entity aliases (`&EACUTE;` → `É`). The same
-//! derivation used to happen at runtime via `lazy_static! { FxHashMap }`
-//! (~500 µs one-shot); doing it at compile time eliminates that init cost.
+//! Compile-time code generation for `plsfix`:
 //!
-//! `htmlize` is pulled in as a build-dependency (`entities` feature only)
-//! so we can iterate `htmlize::ENTITIES` directly — the WHATWG table stays
-//! single-sourced from upstream, no vendored copy.
+//! - `lookup_upper_alias` — `hashify::tiny_map!` perfect-hash for ftfy's
+//!   ALL-CAPS HTML entity aliases (`&EACUTE;` → `É`), derived from
+//!   `htmlize::ENTITIES`. Replaces a ~500 µs lazy_static FxHashMap init.
+//! - `UTF8_CONTINUATION_STRICT_SET` — `phf::Set<char>` reconstructing the
+//!   char class from the lookbehind dropped from `UTF8_DETECTOR_RE`. The
+//!   name list mirrors `test_utf8_clues_match_ftfy` in `chardata.rs`.
 
+use std::collections::BTreeSet;
 use std::env;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -14,9 +15,13 @@ use std::path::PathBuf;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    let out_dir = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    write_html_entity_overlay(&out_dir.join("html_entities.rs"));
+    write_strict_continuation_set(&out_dir.join("utf8.rs"));
+}
 
-    let out_path = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("html_entities.rs");
-    let mut out = BufWriter::new(File::create(&out_path).unwrap());
+fn write_html_entity_overlay(out_path: &std::path::Path) {
+    let mut out = BufWriter::new(File::create(out_path).unwrap());
 
     let mut entries: Vec<(String, String)> = Vec::new();
     for (name_bytes, val_bytes) in htmlize::ENTITIES.entries() {
@@ -86,4 +91,121 @@ fn rust_string_literal(s: &str) -> String {
     }
     out.push('"');
     out
+}
+
+// Letters that decode to 0x80 - 0xBF in a Latin-1-like encoding, and don't
+// usually stand for themselves when adjacent to mojibake. This excludes
+// spaces, dashes, 'bullet', quotation marks, and ellipses.
+const STRICT_NAMES: &[&str] = &[
+    "LATIN CAPITAL LETTER A WITH OGONEK",   // windows-1250:A5
+    "LATIN CAPITAL LETTER AE",              // windows-1257:AF
+    "LATIN CAPITAL LETTER L WITH CARON",    // windows-1250:BC
+    "LATIN CAPITAL LETTER L WITH STROKE",   // windows-1250:A3
+    "LATIN CAPITAL LETTER O WITH STROKE",   // windows-1257:A8
+    "LATIN CAPITAL LETTER R WITH CEDILLA",  // windows-1257:AA
+    "LATIN CAPITAL LETTER S WITH ACUTE",    // windows-1250:8C
+    "LATIN CAPITAL LETTER S WITH CARON",    // windows-1252:8A
+    "LATIN CAPITAL LETTER S WITH CEDILLA",  // windows-1250:AA
+    "LATIN CAPITAL LETTER T WITH CARON",    // windows-1250:8D
+    "LATIN CAPITAL LETTER Y WITH DIAERESIS", // windows-1252:9F
+    "LATIN CAPITAL LETTER Z WITH ACUTE",    // windows-1250:8F
+    "LATIN CAPITAL LETTER Z WITH CARON",    // windows-1252:8E
+    "LATIN CAPITAL LETTER Z WITH DOT ABOVE", // windows-1250:AF
+    "LATIN CAPITAL LIGATURE OE",            // windows-1252:8C
+    "LATIN SMALL LETTER A WITH OGONEK",     // windows-1250:B9
+    "LATIN SMALL LETTER AE",                // windows-1257:BF
+    "LATIN SMALL LETTER F WITH HOOK",       // windows-1252:83
+    "LATIN SMALL LETTER L WITH CARON",      // windows-1250:BE
+    "LATIN SMALL LETTER L WITH STROKE",     // windows-1250:B3
+    "LATIN SMALL LETTER O WITH STROKE",     // windows-1257:B8
+    "LATIN SMALL LETTER R WITH CEDILLA",    // windows-1257:BA
+    "LATIN SMALL LETTER S WITH ACUTE",      // windows-1250:9C
+    "LATIN SMALL LETTER S WITH CARON",      // windows-1252:9A
+    "LATIN SMALL LETTER S WITH CEDILLA",    // windows-1250:BA
+    "LATIN SMALL LETTER T WITH CARON",      // windows-1250:9D
+    "LATIN SMALL LETTER Z WITH ACUTE",      // windows-1250:9F
+    "LATIN SMALL LETTER Z WITH CARON",      // windows-1252:9E
+    "LATIN SMALL LETTER Z WITH DOT ABOVE",  // windows-1250:BF
+    "LATIN SMALL LIGATURE OE",              // windows-1252:9C
+    "MODIFIER LETTER CIRCUMFLEX ACCENT",    // windows-1252:88
+    "CARON",                                // windows-1250:A1
+    "BREVE",                                // windows-1250:A2
+    "OGONEK",                               // windows-1250:B2
+    "SMALL TILDE",                          // windows-1252:98
+    "DOUBLE ACUTE ACCENT",                  // windows-1250:BD
+    "GREEK TONOS",                          // windows-1253:B4
+    "GREEK DIALYTIKA TONOS",                // windows-1253:A1
+    "GREEK CAPITAL LETTER ALPHA WITH TONOS", // windows-1253:A2
+    "GREEK CAPITAL LETTER EPSILON WITH TONOS", // windows-1253:B8
+    "GREEK CAPITAL LETTER ETA WITH TONOS",  // windows-1253:B9
+    "GREEK CAPITAL LETTER IOTA WITH TONOS", // windows-1253:BA
+    "GREEK CAPITAL LETTER OMICRON WITH TONOS", // windows-1253:BC
+    "GREEK CAPITAL LETTER UPSILON WITH TONOS", // windows-1253:BE
+    "GREEK CAPITAL LETTER OMEGA WITH TONOS", // windows-1253:BF
+    "CYRILLIC CAPITAL LETTER IO",           // windows-1251:A8
+    "CYRILLIC CAPITAL LETTER DJE",          // windows-1251:80
+    "CYRILLIC CAPITAL LETTER GJE",          // windows-1251:81
+    "CYRILLIC CAPITAL LETTER UKRAINIAN IE", // windows-1251:AA
+    "CYRILLIC CAPITAL LETTER DZE",          // windows-1251:BD
+    "CYRILLIC CAPITAL LETTER BYELORUSSIAN-UKRAINIAN I", // windows-1251:B2
+    "CYRILLIC CAPITAL LETTER YI",           // windows-1251:AF
+    "CYRILLIC CAPITAL LETTER JE",           // windows-1251:A3
+    "CYRILLIC CAPITAL LETTER LJE",          // windows-1251:8A
+    "CYRILLIC CAPITAL LETTER NJE",          // windows-1251:8C
+    "CYRILLIC CAPITAL LETTER TSHE",         // windows-1251:8E
+    "CYRILLIC CAPITAL LETTER KJE",          // windows-1251:8D
+    "CYRILLIC CAPITAL LETTER SHORT U",      // windows-1251:A1
+    "CYRILLIC CAPITAL LETTER DZHE",         // windows-1251:8F
+    "CYRILLIC SMALL LETTER IO",             // windows-1251:B8
+    "CYRILLIC SMALL LETTER DJE",            // windows-1251:90
+    "CYRILLIC SMALL LETTER GJE",            // windows-1251:83
+    "CYRILLIC SMALL LETTER UKRAINIAN IE",   // windows-1251:BA
+    "CYRILLIC SMALL LETTER DZE",            // windows-1251:BE
+    "CYRILLIC SMALL LETTER BYELORUSSIAN-UKRAINIAN I", // windows-1251:B3
+    "CYRILLIC SMALL LETTER YI",             // windows-1251:BF
+    "CYRILLIC SMALL LETTER JE",             // windows-1251:BC
+    "CYRILLIC SMALL LETTER LJE",            // windows-1251:9A
+    "CYRILLIC SMALL LETTER NJE",            // windows-1251:9C
+    "CYRILLIC SMALL LETTER TSHE",           // windows-1251:9E
+    "CYRILLIC SMALL LETTER KJE",            // windows-1251:9D
+    "CYRILLIC SMALL LETTER SHORT U",        // windows-1251:A2
+    "CYRILLIC SMALL LETTER DZHE",           // windows-1251:9F
+    "CYRILLIC CAPITAL LETTER GHE WITH UPTURN", // windows-1251:A5
+    "CYRILLIC SMALL LETTER GHE WITH UPTURN", // windows-1251:B4
+    "DAGGER",                               // windows-1252:86
+    "DOUBLE DAGGER",                        // windows-1252:87
+    "PER MILLE SIGN",                       // windows-1252:89
+    "SINGLE LEFT-POINTING ANGLE QUOTATION MARK", // windows-1252:8B
+    "SINGLE RIGHT-POINTING ANGLE QUOTATION MARK", // windows-1252:9B
+    "EURO SIGN",                            // windows-1252:80
+    "NUMERO SIGN",                          // windows-1251:B9
+    "TRADE MARK SIGN",                      // windows-1252:99
+];
+
+fn write_strict_continuation_set(out_path: &std::path::Path) {
+    let mut out = BufWriter::new(File::create(out_path).unwrap());
+
+    // BTreeSet for stable codegen output and to dedupe in case a named char
+    // overlaps with the byte range (currently none do).
+    let mut chars: BTreeSet<char> = ('\u{80}'..='\u{bf}').collect();
+    for name in STRICT_NAMES {
+        let ch = unicode_names2::character(name)
+            .unwrap_or_else(|| panic!("unknown Unicode name {name:?}"));
+        chars.insert(ch);
+    }
+
+    let mut builder = phf_codegen::Set::<char>::new();
+    for c in &chars {
+        builder.entry(*c);
+    }
+
+    writeln!(
+        out,
+        "/// Char class that the dropped `(?<![strict])` lookbehind of `UTF8_DETECTOR_RE`\n\
+         /// excluded. Reconstructed in `decode_inconsistent_utf8` to filter rejected\n\
+         /// matches. Source of truth: `build.rs::STRICT_NAMES`.\n\
+         pub static UTF8_CONTINUATION_STRICT_SET: phf::Set<char> = {};",
+        builder.build()
+    )
+    .unwrap();
 }
