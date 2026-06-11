@@ -18,8 +18,7 @@ fn _unescape_fixup(capture: &regex::Captures) -> String {
     if possible.
     */
     let text = capture.get(0).map_or("", |m| m.as_str());
-    // Check the compile-time ALL-CAPS overlay first (`hashify::tiny_map!`
-    // expands to a gperf-style perfect-hash `match`). Falls through to
+    // Check the compile-time ALL-CAPS overlay first. Falls through to
     // `htmlize` (WHATWG named entities + § 13.2.5.80 numeric refs).
     if let Some(val) = lookup_upper_alias(text) {
         return val.to_string();

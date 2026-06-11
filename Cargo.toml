@@ -13,7 +13,6 @@ plsfix = { path = "core" }
 encoding = "0.2.33"
 encoding_rs = "0.8.35"
 gungraun = "0.19.2"
-hashify = "0.2.9"
 htmlize = "1.1.0"
 icu_normalizer = "1.5.0"
 lazy_static = "1.5.0"

@@ -145,12 +145,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "equivalent"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
-
-[[package]]
 name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -202,24 +196,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6965c4e60026245b5600b05ab4c4af5ae1eaf72b8ec5da86c9cc6af01258d8cc"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "hashbrown"
-version = "0.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
-
-[[package]]
-name = "hashify"
-version = "0.2.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd1246c0e5493286aeb2dde35b1f4eb9c4ce00e628641210a5e553fc001a1f26"
-dependencies = [
- "indexmap",
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -358,16 +334,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "indexmap"
-version = "2.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
-dependencies = [
- "equivalent",
- "hashbrown",
 ]
 
 [[package]]
@@ -512,7 +478,6 @@ version = "0.1.8"
 dependencies = [
  "encoding",
  "encoding_rs",
- "hashify",
  "htmlize",
  "icu_normalizer",
  "lazy_static",
