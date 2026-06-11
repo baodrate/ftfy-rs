@@ -1,8 +1,9 @@
 use crate::{
     badness::is_bad,
     chardata::{
-        ALTERED_UTF8_RE, C1_CONTROL_RE, CONTROL_CHARS, DOUBLE_QUOTE_RE, HTML_ENTITY_RE, LIGATURES,
-        LOSSY_UTF8_RE, SINGLE_QUOTE_RE, UTF8_CONTINUATION_STRICT_SET, UTF8_DETECTOR_RE, WIDTH_MAP,
+        is_control_char, ALTERED_UTF8_RE, C1_CONTROL_RE, DOUBLE_QUOTE_RE, HTML_ENTITY_RE,
+        LIGATURES, LOSSY_UTF8_RE, SINGLE_QUOTE_RE, UTF8_CONTINUATION_STRICT_SET, UTF8_DETECTOR_RE,
+        WIDTH_MAP,
     },
     codecs::sloppy::{Codec, LATIN_1, SLOPPY_WINDOWS_1252},
     fix_encoding_and_explain,
@@ -229,19 +230,14 @@ pub fn remove_control_chars(text: &str) -> Cow<str> {
     - Tag characters, because they are now used in emoji sequences such as
       "Flag of Wales"
       */
-    if !text.chars().any(|ch| CONTROL_CHARS.contains(&(ch as u32))) {
-        return Cow::Borrowed(text);
+    if let Some((idx, _)) = text.char_indices().find(|(_, ch)| is_control_char(*ch)) {
+        let mut result = String::with_capacity(text.len());
+        result.push_str(&text[..idx]);
+        result.extend(text[idx..].chars().filter(|ch| !is_control_char(*ch)));
+        Cow::Owned(result)
+    } else {
+        Cow::Borrowed(text)
     }
-
-    let mut result = String::new();
-
-    for ch in text.chars() {
-        if !CONTROL_CHARS.contains(&(ch as u32)) {
-            result.push(ch);
-        }
-    }
-
-    Cow::Owned(result)
 }
 
 lazy_static! {
