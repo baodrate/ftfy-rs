@@ -32,8 +32,8 @@ use fixes::replace_lossy_sequences;
 use fixes::restore_byte_a0;
 use fixes::uncurl_quotes;
 use fixes::unescape_html;
-use icu::normalizer::ComposingNormalizer;
-use icu::normalizer::DecomposingNormalizer;
+use icu_normalizer::ComposingNormalizer;
+use icu_normalizer::DecomposingNormalizer;
 
 use crate::codecs::sloppy::CodecType;
 
