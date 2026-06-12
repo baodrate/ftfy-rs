@@ -83,24 +83,45 @@ jobs:
       - name: Install lcov (genhtml)
         # Required by zgosalvez/github-actions-report-lcov to build the
         # HTML report — the action doesn't bundle lcov itself.
+        # Built from source because Ubuntu 24.04's lcov 2.0 package has a
+        # broken `lcov --list`: the per-file table (which the action uses
+        # for the "Files changed coverage rate" section of the PR comment)
+        # prints the *hit* count in the Num column and a nonsense Rate
+        # (e.g. 30.3%/0.0% for a file genhtml reports as 97.2% lines /
+        # 97.6% functions). Fixed upstream in v2.1.
+        # hrishikesh-kadam/setup-lcov can also build a tagged release, but
+        # bootstraps cpanminus via `sudo cpan` (minutes); apt's perl
+        # modules + `make install` take seconds. lcov/genhtml only need
+        # Capture::Tiny, DateTime and Date::Parse beyond core perl.
         if: always() && hashFiles('lcov.info') != ''
-        uses: hrishikesh-kadam/setup-lcov@v1
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            libcapture-tiny-perl libdatetime-perl libtimedate-perl
+          git clone --branch v2.3.2 --depth 1 \
+            https://github.com/linux-test-project/lcov.git "$RUNNER_TEMP/lcov"
+          sudo make -C "$RUNNER_TEMP/lcov" install
 
-      - name: Shim lcov with a "Reading tracefile" prefix line
+      - name: Shim lcov to restore the lcov 1.x output shape
         # zgosalvez's summarize() / detail() strip the first line of
         # lcov's stdout, assuming it's the legacy "Reading tracefile..."
-        # banner from lcov 1.x. lcov 2.x dropped that banner, so the
-        # strip instead eats real content — the `|Lines |Functions
-        # |Branches` column header in the per-file table. Restore it by
-        # putting a shim earlier in PATH that prepends the banner.
+        # banner from lcov 1.x, and detail() also strips the last two
+        # lines, assuming they're the "Total:" row and its "====" rule.
+        # lcov 2.3 prints the banner for --summary but still not for
+        # --list, and appends a "Message summary:" block to both. Put a
+        # shim earlier in PATH that prepends the banner for --list and
+        # drops the trailing message block, so the action's line
+        # stripping eats exactly what it expects.
         if: always() && hashFiles('lcov.info') != ''
         run: |
           LCOV_REAL=$(command -v lcov)
           mkdir -p "$RUNNER_TEMP/lcov-shim"
           cat > "$RUNNER_TEMP/lcov-shim/lcov" <<EOF
-          #!/bin/sh
-          echo "Reading tracefile..."
-          exec "$LCOV_REAL" "\$@"
+          #!/bin/bash
+          case " \$* " in
+            *" --list "*) echo "Reading tracefile..." ;;
+          esac
+          "$LCOV_REAL" "\$@" | sed '/^Message summary:/,\$d'
+          exit "\${PIPESTATUS[0]}"
           EOF
           chmod +x "$RUNNER_TEMP/lcov-shim/lcov"
           echo "$RUNNER_TEMP/lcov-shim" >> "$GITHUB_PATH"
