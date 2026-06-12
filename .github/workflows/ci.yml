@@ -37,7 +37,11 @@ jobs:
   test:
     name: cargo test
     needs: check
-    runs-on: ubuntu-latest
+    # Pinned to 26.04 (preview until it becomes ubuntu-latest) for its
+    # lcov 2.4 apt package — 24.04 ships lcov 2.0, whose `lcov --list`
+    # is broken (see the install step below). Switch back to
+    # ubuntu-latest once that label points at 26.04.
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
@@ -83,30 +87,24 @@ jobs:
       - name: Install lcov (genhtml)
         # Required by zgosalvez/github-actions-report-lcov to build the
         # HTML report — the action doesn't bundle lcov itself.
-        # Built from source because Ubuntu 24.04's lcov 2.0 package has a
-        # broken `lcov --list`: the per-file table (which the action uses
-        # for the "Files changed coverage rate" section of the PR comment)
-        # prints the *hit* count in the Num column and a nonsense Rate
-        # (e.g. 30.3%/0.0% for a file genhtml reports as 97.2% lines /
-        # 97.6% functions). Fixed upstream in v2.1.
-        # hrishikesh-kadam/setup-lcov can also build a tagged release, but
-        # bootstraps cpanminus via `sudo cpan` (minutes); apt's perl
-        # modules + `make install` take seconds. lcov/genhtml only need
-        # Capture::Tiny, DateTime and Date::Parse beyond core perl.
+        # Needs lcov >= 2.1: lcov 2.0 (what 24.04's apt and the default
+        # setup-lcov action install) has a broken `lcov --list` — the
+        # per-file table (which the action uses for the "Files changed
+        # coverage rate" section of the PR comment) prints the *hit*
+        # count in the Num column and a nonsense Rate (e.g. 30.3%/0.0%
+        # for a file genhtml reports as 97.2% lines / 97.6% functions).
+        # 26.04 ships lcov 2.4, which is fine.
         if: always() && hashFiles('lcov.info') != ''
         run: |
-          sudo apt-get install -y --no-install-recommends \
-            libcapture-tiny-perl libdatetime-perl libtimedate-perl
-          git clone --branch v2.3.2 --depth 1 \
-            https://github.com/linux-test-project/lcov.git "$RUNNER_TEMP/lcov"
-          sudo make -C "$RUNNER_TEMP/lcov" install
+          sudo apt-get update
+          sudo apt-get install -y lcov
 
       - name: Shim lcov to restore the lcov 1.x output shape
         # zgosalvez's summarize() / detail() strip the first line of
         # lcov's stdout, assuming it's the legacy "Reading tracefile..."
         # banner from lcov 1.x, and detail() also strips the last two
         # lines, assuming they're the "Total:" row and its "====" rule.
-        # lcov 2.3 prints the banner for --summary but still not for
+        # lcov 2.4 prints the banner for --summary but still not for
         # --list, and appends a "Message summary:" block to both. Put a
         # shim earlier in PATH that prepends the banner for --list and
         # drops the trailing message block, so the action's line
