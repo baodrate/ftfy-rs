@@ -334,11 +334,13 @@ jobs:
           passed = tests - failures - errors - skipped
           verdict = '❌' if failures or errors else '✅'
           out = ['### Tests', '']
-          out.append(f'{verdict} **{tests} ran** — {passed} passed, '
-                     f'{skipped} skipped, {failures + errors} failed')
+          out += ['| Result | Ran | Passed | Skipped | Failed |',
+                  '|:---:|---:|---:|---:|---:|',
+                  f'| {verdict} | {tests} | {passed} | {skipped} '
+                  f'| {failures + errors} |']
           if failed:
-              out.append('')
-              out += [f'- ❌ `{name}`' for name in failed]
+              out += ['', '| Failed test |', '|---|']
+              out += [f'| ❌ `{name}` |' for name in failed]
           out.append('')
           with open('test-body.md', 'w') as fh:
               fh.write('\n'.join(out) + '\n')
