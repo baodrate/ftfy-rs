@@ -720,7 +720,7 @@ fn _fix_encoding_one_step_and_explain(
     }
 
     // Fix individual characters of Latin-1 with a less satisfying explanation
-    if config.fix_c1_controls {
+    if config.fix_c1_controls && chardata::C1_CONTROL_RE.is_match(&text) {
         let fixed = fix_c1_controls(&text);
         let steps = if explain {
             Some(vec![ExplanationStep {
@@ -746,7 +746,7 @@ fn _fix_encoding_one_step_and_explain(
 
 #[cfg(test)]
 mod tests {
-    use super::fix_text;
+    use super::{fix_and_explain, fix_text};
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -1955,6 +1955,48 @@ mod tests {
         let expected = "• café";
         let result = fix_text(original, None);
         assert_eq!(result, expected);
+    }
+
+    // When `is_bad`-positive text contains a C1 control which can't be decoded away by the codecs,
+    // it should hit (and record) the fix_c1_controls step
+    #[test]
+    fn test_fix_c1_controls_step_emitted_with_c1_controls() {
+        let original = "Поздрав\u{0081}Ђаво";
+        let explained = fix_and_explain(original, true, None);
+        assert_eq!(explained.text, original);
+        let steps: Vec<&str> = explained
+            .steps
+            .as_deref()
+            .unwrap()
+            .iter()
+            .map(|s| s.transformation.as_str())
+            .collect();
+        assert!(
+            steps.contains(&"fix_c1_controls"),
+            "missing fix_c1_controls step on text with C1 controls: {steps:?}",
+        );
+    }
+
+    // Regression: A `fix_c1_controls` step must not be emitted on text that has no C1 controls.
+    #[test]
+    fn test_fix_c1_controls_step_not_emitted_without_c1_controls() {
+        // Cyrillic that looks like utf-8/windows-1251 mojibake but isn't
+        // (an `is_bad` false positive). It contains no C1 controls, so
+        // the inner pass should fall through cleanly.
+        let original = "ПоздравЂаво";
+        let explained = fix_and_explain(original, true, None);
+        assert_eq!(explained.text, original);
+        let steps: Vec<&str> = explained
+            .steps
+            .as_deref()
+            .unwrap()
+            .iter()
+            .map(|s| s.transformation.as_str())
+            .collect();
+        assert!(
+            !steps.contains(&"fix_c1_controls"),
+            "spurious fix_c1_controls step on text with no C1 controls: {steps:?}",
+        );
     }
 }
 
