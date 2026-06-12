@@ -533,25 +533,19 @@ fn fix_encoding_and_explain(
     let plan_so_far = if explain { Some(Vec::new()) } else { None };
 
     for _ in 0..MAX_ATTEMPTS {
-        let new_text = _fix_encoding_one_step_and_explain(&prev_text, explain, &config);
-
-        if new_text.text == prev_text {
-            if let Some(mut plan) = plan_so_far {
-                plan.extend(new_text.steps.unwrap_or(Vec::new()));
-
+        match _fix_encoding_one_step_and_explain(&prev_text, explain, &config) {
+            // No change this iteration — we've reached the fixed point. Reuse
+            // the existing `prev_text` String instead of allocating a copy.
+            None => {
                 return ExplainedText {
-                    text: new_text.text,
-                    steps: Some(plan),
+                    text: prev_text,
+                    steps: plan_so_far,
                 };
             }
-
-            return ExplainedText {
-                text: new_text.text,
-                steps: None,
-            };
+            Some((new_text, _steps)) => {
+                prev_text = new_text;
+            }
         }
-
-        prev_text = new_text.text;
     }
 
     ExplainedText {
@@ -560,23 +554,31 @@ fn fix_encoding_and_explain(
     }
 }
 
+/// Run one iteration of the encoding-repair loop.
+///
+/// Returns `None` when the text was not modified — the caller can keep
+/// reusing its existing `String` instead of allocating a copy for every
+/// no-op iteration (which is the common case once the fixed point is
+/// reached, and also covers the empty / ASCII / `!is_bad` fast paths).
 fn _fix_encoding_one_step_and_explain(
     text: &str,
     explain: bool,
     config: &TextFixerConfig,
-) -> ExplainedText {
-    let mut text = text.to_string();
-
-    if text.len() == 0 {
-        // return text;
-        return ExplainedText { text, steps: None };
+) -> Option<(String, Option<Vec<ExplanationStep>>)> {
+    if text.is_empty() {
+        return None;
     }
 
     // The first plan is to return ASCII text unchanged, as well as text
     // that doesn't look like it contains mojibake
-    if possible_encoding(&text, sloppy::CodecType::Ascii) || !is_bad(&text) {
-        return ExplainedText { text, steps: None };
+    if possible_encoding(text, sloppy::CodecType::Ascii) || !is_bad(text) {
+        return None;
     }
+
+    // We're past the fast paths; allocate the owned buffer the later
+    // sub-fixers want to operate on.
+    let mut text = text.to_string();
+    let mut modified = false;
 
     // As we go through the next step, remember the possible encodings
     // that we encounter but don't successfully fix yet. We may need them
@@ -653,10 +655,7 @@ fn _fix_encoding_one_step_and_explain(
                     let fixed = std::str::from_utf8(&encoded_bytes);
 
                     if let Ok(s) = fixed {
-                        return ExplainedText {
-                            text: s.to_string(),
-                            steps,
-                        };
+                        return Some((s.to_string(), steps));
                     } else {
                         continue;
                     }
@@ -664,10 +663,7 @@ fn _fix_encoding_one_step_and_explain(
                     let fixed = utf8_variants::variant_decode(&encoded_bytes);
 
                     if let Ok(s) = fixed {
-                        return ExplainedText {
-                            text: s.to_string(),
-                            steps,
-                        };
+                        return Some((s, steps));
                     } else {
                         continue;
                     }
@@ -681,6 +677,7 @@ fn _fix_encoding_one_step_and_explain(
         let fixed = decode_inconsistent_utf8(&text);
         if fixed != text {
             text = fixed.into();
+            modified = true;
         }
     }
 
@@ -691,7 +688,7 @@ fn _fix_encoding_one_step_and_explain(
         if possible_1byte_encodings.contains(&&sloppy::CodecType::SloppyWindows1252) {
             // This text is in the intersection of Latin-1 and
             // Windows-1252, so it's probably legit.
-            return ExplainedText { text, steps: None };
+            return if modified { Some((text, None)) } else { None };
         } else {
             // Otherwise, it means we have characters that are in Latin-1 but
             // not in Windows-1252. Those are C1 control characters. Nobody
@@ -713,7 +710,7 @@ fn _fix_encoding_one_step_and_explain(
                         None
                     };
 
-                    return ExplainedText { text: fixed, steps };
+                    return Some((fixed, steps));
                 }
             }
         }
@@ -722,17 +719,16 @@ fn _fix_encoding_one_step_and_explain(
     // Fix individual characters of Latin-1 with a less satisfying explanation
     if config.fix_c1_controls {
         let fixed = fix_c1_controls(&text);
-        let steps = if explain {
-            Some(vec![ExplanationStep {
-                transformation: String::from("fix_c1_controls"),
-            }])
-        } else {
-            None
-        };
-        return ExplainedText {
-            text: fixed.into(),
-            steps,
-        };
+        if matches!(fixed, Cow::Owned(_)) {
+            let steps = if explain {
+                Some(vec![ExplanationStep {
+                    transformation: String::from("fix_c1_controls"),
+                }])
+            } else {
+                None
+            };
+            return Some((fixed.into_owned(), steps));
+        }
     }
 
     // The cases that remain are mixups between two different single-byte
@@ -741,7 +737,11 @@ fn _fix_encoding_one_step_and_explain(
     // With the new heuristic in 6.0, it's possible that we're closer to solving
     // these in some cases. It would require a lot of testing and tuning, though.
     // For now, we leave the text unchanged in these cases.
-    ExplainedText { text, steps: None }
+    if modified {
+        Some((text, None))
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -2118,5 +2118,20 @@ mod ftfy_test_entities {
             steps.contains(&"unescape_html"),
             "expected an `unescape_html` step, got {steps:?}"
         );
+    }
+
+    /// Doubly-encoded mojibake must still converge through the
+    /// `fix_encoding_and_explain` fixed-point loop: the multi-iteration
+    /// recovery path — where the inner step genuinely *does* mutate text
+    /// more than once — must arrive at the right answer rather than
+    /// bailing out after the first pass.
+    #[test]
+    fn test_encoding_loop_double_mojibake_converges() {
+        // "Ã©" is "é" mis-decoded once as Windows-1252. Encoding *that*
+        // result as UTF-8 and mis-decoding it again as Windows-1252 yields
+        // "Ã\u{83}Â©". The encoding loop must take two passes to undo it
+        // and land on "é" — anything less and we'd see a residual "Ã©".
+        let result = fix_text("caf\u{c3}\u{83}\u{c2}\u{a9}", None);
+        assert_eq!(result, "café");
     }
 }
