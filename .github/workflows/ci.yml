@@ -72,6 +72,17 @@ jobs:
             --workspace --all-features --profile ci \
             --lcov --output-path lcov.info
 
+      - name: Fail if the test run produced no report
+        # The coverage step is continue-on-error so that *test failures*
+        # are reported by the JUnit publisher below (fail_on_failure).
+        # But if the build breaks before nextest runs, no junit.xml (or
+        # lcov.info) is ever written and every report step is skipped by
+        # its hashFiles() guard, leaving the job green. Catch that case.
+        if: always() && hashFiles('target/nextest/ci/junit.xml') == ''
+        run: |
+          echo "::error::cargo llvm-cov nextest exited without writing target/nextest/ci/junit.xml — it failed before any tests ran (build error?). See the 'Run tests with coverage' step."
+          exit 1
+
       - name: Make lcov paths workspace-relative
         # cargo-llvm-cov writes absolute `SF:` paths
         # (/home/runner/work/<repo>/<repo>/...). zgosalvez compares each
