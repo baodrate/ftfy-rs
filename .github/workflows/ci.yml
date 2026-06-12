@@ -41,16 +41,23 @@ jobs:
   test:
     name: cargo test
     needs: check
-    # Pinned to 26.04 (preview until it becomes ubuntu-latest) for its
-    # lcov 2.4 apt package — 24.04 ships lcov 2.0, whose `lcov --list`
-    # is broken (see the install step below). Switch back to
-    # ubuntu-latest once that label points at 26.04.
+    # Pinned to 26.04 (preview until it becomes ubuntu-latest), front-
+    # running the ubuntu-latest migration. (The original reason — apt
+    # lcov 2.4's fixed `lcov --list` — stopped mattering when the
+    # coverage comment moved to parsing lcov.info directly; only genhtml
+    # is used now, and the per-image cargo cache key makes image moves
+    # safe either way.)
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    # The coverage baseline runs the instrumented build + suite a second
+    # time on the PR base, so allow for two cold builds on a fresh cache.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
+          # Full history so the coverage-baseline step can check out the
+          # PR base commit.
+          fetch-depth: 0
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -72,6 +79,31 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest,cargo-llvm-cov
+
+      - name: Coverage baseline from the PR base
+        # Mirrors benchmark.yml's baseline pattern: run the same
+        # instrumented suite on the PR's base commit so the coverage
+        # comment can report a delta, not just the PR's absolute
+        # numbers. Uses the default nextest profile (not `ci`) so the
+        # baseline never writes target/nextest/ci/junit.xml — the
+        # published test report must be the head run's. With
+        # continue-on-error, a broken base build just means "no
+        # baseline", and the comment says so.
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          git checkout -f ${{ github.event.pull_request.base.sha }}
+          git submodule update --init --recursive
+          cargo llvm-cov nextest \
+            --workspace --all-features \
+            --ignore-run-fail \
+            --lcov --output-path base-lcov.info
+
+      - name: Restore the PR checkout
+        if: always() && github.event_name == 'pull_request'
+        run: |
+          git checkout -f ${{ github.sha }}
+          git submodule update --init --recursive
 
       - name: Run tests with coverage
         # `cargo llvm-cov nextest` runs the test suite under llvm-cov
@@ -105,74 +137,183 @@ jobs:
 
       - name: Make lcov paths workspace-relative
         # cargo-llvm-cov writes absolute `SF:` paths
-        # (/home/runner/work/<repo>/<repo>/...). zgosalvez compares each
-        # PR-changed file (a repo-root-relative path it gets from the
-        # listFiles API) against the lcov entries with a literal
-        # startsWith and doesn't use its own working-directory input for
-        # this — so without rewriting the prefix every changed file
-        # mismatches and the PR comment shows
-        # "Files changed coverage rate: n/a".
+        # (/home/runner/work/<repo>/<repo>/...). Rewrite them
+        # repo-relative so they match `git diff --name-only` output when
+        # the summary step picks out changed files (and so the HTML
+        # report doesn't embed runner paths).
         if: always() && hashFiles('lcov.info') != ''
-        run: sed -i "s|SF:${{ github.workspace }}/|SF:|g" lcov.info
+        run: |
+          sed -i "s|SF:${{ github.workspace }}/|SF:|g" lcov.info
+          if [ -f base-lcov.info ]; then
+            sed -i "s|SF:${{ github.workspace }}/|SF:|g" base-lcov.info
+          fi
 
       - name: Install lcov (genhtml)
-        # Required by zgosalvez/github-actions-report-lcov to build the
-        # HTML report — the action doesn't bundle lcov itself.
-        # Needs lcov >= 2.1: lcov 2.0 (what 24.04's apt and the default
-        # setup-lcov action install) has a broken `lcov --list` — the
-        # per-file table (which the action uses for the "Files changed
-        # coverage rate" section of the PR comment) prints the *hit*
-        # count in the Num column and a nonsense Rate (e.g. 30.3%/0.0%
-        # for a file genhtml reports as 97.2% lines / 97.6% functions).
-        # 26.04 ships lcov 2.4, which is fine.
+        # Only genhtml is used (HTML report artifact) — the coverage
+        # comment below is built by parsing lcov.info directly, which is
+        # also why lcov 2.0's broken `--list` (24.04's apt package) no
+        # longer matters here.
         if: always() && hashFiles('lcov.info') != ''
         run: |
           sudo apt-get update
           sudo apt-get install -y lcov
 
-      - name: Shim lcov to restore the lcov 1.x output shape
-        # zgosalvez's summarize() / detail() strip the first line of
-        # lcov's stdout, assuming it's the legacy "Reading tracefile..."
-        # banner from lcov 1.x, and detail() also strips the last two
-        # lines, assuming they're the "Total:" row and its "====" rule.
-        # lcov 2.4 prints the banner for --summary but still not for
-        # --list, and appends a "Message summary:" block to both. Put a
-        # shim earlier in PATH that prepends the banner for --list and
-        # drops the trailing message block, so the action's line
-        # stripping eats exactly what it expects.
+      - name: Generate HTML coverage report
         if: always() && hashFiles('lcov.info') != ''
-        run: |
-          LCOV_REAL=$(command -v lcov)
-          mkdir -p "$RUNNER_TEMP/lcov-shim"
-          cat > "$RUNNER_TEMP/lcov-shim/lcov" <<EOF
-          #!/bin/bash
-          case " \$* " in
-            *" --list "*) echo "Reading tracefile..." ;;
-          esac
-          "$LCOV_REAL" "\$@" | sed '/^Message summary:/,\$d'
-          exit "\${PIPESTATUS[0]}"
-          EOF
-          chmod +x "$RUNNER_TEMP/lcov-shim/lcov"
-          echo "$RUNNER_TEMP/lcov-shim" >> "$GITHUB_PATH"
+        run: genhtml lcov.info --output-directory coverage-html
 
-      - name: Summarise coverage
+      - name: Upload HTML coverage report
+        id: html-report
         if: always() && hashFiles('lcov.info') != ''
-        id: coverage
-        uses: zgosalvez/github-actions-report-lcov@v7
+        uses: actions/upload-artifact@v4
         with:
-          coverage-files: lcov.info
-          # Setting a non-empty artifact-name makes the action generate
-          # the genhtml HTML report and upload it as a workflow artifact.
-          artifact-name: coverage-html-report
-          # Mikepenz's `summary:` input doesn't surface in its PR comment
-          # (only in the job summary / check run), so let zgosalvez post
-          # its own coverage comment. Artifact-id is produced by this
-          # same step so we can't self-reference it — point at the run
-          # page instead.
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          update-comment: true
-          additional-message: |
-            [Download HTML report](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          name: coverage-html-report
+          path: coverage-html
+          retention-days: 14
+
+      - name: Build coverage summary and delta
+        # Parses head and (when present) base lcov tracefiles into a
+        # markdown body: overall lines/functions rates, the Δ against
+        # the base in percentage points, and a per-file table for the
+        # PR's changed files. Replaces zgosalvez/report-lcov, whose
+        # comment had no base comparison (and whose `lcov --list`
+        # parsing needed a PATH shim to survive lcov 2.x).
+        id: coverage
+        if: always() && hashFiles('lcov.info') != ''
+        env:
+          PR_NUM: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          ARTIFACT_URL: ${{ steps.html-report.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          if [ -n "$BASE_SHA" ]; then
+            git diff --name-only "$BASE_SHA" "$GITHUB_SHA" > changed-files.txt
+          else
+            : > changed-files.txt
+          fi
+          python3 - <<'PY'
+          import os
+
+          # lcov tracefile → {source path: {lf, lh, fnf, fnh}}, i.e.
+          # lines/functions found and hit per file, from the LF/LH/
+          # FNF/FNH summary records.
+          def parse(path):
+              files, cur = {}, None
+              with open(path) as fh:
+                  for line in fh:
+                      line = line.strip()
+                      if line.startswith('SF:'):
+                          cur = {'lf': 0, 'lh': 0, 'fnf': 0, 'fnh': 0}
+                          files[line[3:]] = cur
+                      elif cur is None:
+                          continue
+                      elif line.startswith('LF:'):
+                          cur['lf'] = int(line[3:])
+                      elif line.startswith('LH:'):
+                          cur['lh'] = int(line[3:])
+                      elif line.startswith('FNF:'):
+                          cur['fnf'] = int(line[4:])
+                      elif line.startswith('FNH:'):
+                          cur['fnh'] = int(line[4:])
+                      elif line == 'end_of_record':
+                          cur = None
+              return files
+
+          def totals(files):
+              t = {'lf': 0, 'lh': 0, 'fnf': 0, 'fnh': 0}
+              for v in files.values():
+                  for k in t:
+                      t[k] += v[k]
+              return t
+
+          def pct(hit, found):
+              return None if found == 0 else 100.0 * hit / found
+
+          def fmt_pct(p, hit=None, found=None):
+              if p is None:
+                  return '—'
+              s = f'{p:.1f}%'
+              return f'{s} ({hit}/{found})' if hit is not None else s
+
+          # Δ in percentage points, benchmark-style: |Δ| < 0.05pp is
+          # rounding noise ("≈0"); drops get ⚠️ (bold from 1pp up),
+          # gains get ✅.
+          def fmt_delta(new, old):
+              if new is None or old is None:
+                  return '—'
+              d = new - old
+              if abs(d) < 0.05:
+                  return '≈0'
+              s = f'{d:+.2f}pp'
+              if d < 0:
+                  return f'⚠️ **{s}**' if d <= -1.0 else f'⚠️ {s}'
+              return f'✅ {s}'
+
+          head = parse('lcov.info')
+          base = parse('base-lcov.info') if os.path.exists('base-lcov.info') else None
+          ht = totals(head)
+          bt = totals(base) if base is not None else None
+          changed = [l.strip() for l in open('changed-files.txt') if l.strip()]
+          pr = os.environ.get('PR_NUM', '')
+          base_ref = os.environ.get('BASE_REF', '')
+
+          out = []
+          if pr and bt is not None:
+              out += [f'### Coverage — PR-{pr} vs `{base_ref}`', '']
+          elif pr:
+              out += [f'### Coverage — PR-{pr} (no baseline: the `{base_ref}` run failed)', '']
+          else:
+              out += ['### Coverage', '']
+          out += ['|  | Lines | Functions |', '|---|---:|---:|']
+          if bt is not None:
+              out.append(f"| `{base_ref}` (base) | {fmt_pct(pct(bt['lh'], bt['lf']), bt['lh'], bt['lf'])} | {fmt_pct(pct(bt['fnh'], bt['fnf']), bt['fnh'], bt['fnf'])} |")
+          out.append(f"| {'PR' if pr else 'total'} | {fmt_pct(pct(ht['lh'], ht['lf']), ht['lh'], ht['lf'])} | {fmt_pct(pct(ht['fnh'], ht['fnf']), ht['fnh'], ht['fnf'])} |")
+          if bt is not None:
+              out.append(f"| **Δ** | {fmt_delta(pct(ht['lh'], ht['lf']), pct(bt['lh'], bt['lf']))} | {fmt_delta(pct(ht['fnh'], ht['fnf']), pct(bt['fnh'], bt['fnf']))} |")
+          out.append('')
+
+          if pr:
+              rows = []
+              for path in changed:
+                  h = head.get(path)
+                  if h is None:
+                      continue
+                  b = base.get(path) if base is not None else None
+                  if b is not None:
+                      ld = fmt_delta(pct(h['lh'], h['lf']), pct(b['lh'], b['lf']))
+                      fd = fmt_delta(pct(h['fnh'], h['fnf']), pct(b['fnh'], b['fnf']))
+                  else:
+                      ld = fd = 'new' if base is not None else '—'
+                  rows.append(f"| `{path}` | {fmt_pct(pct(h['lh'], h['lf']))} | {ld} | {fmt_pct(pct(h['fnh'], h['fnf']))} | {fd} |")
+              out += ['**Files changed:**', '']
+              if rows:
+                  out += ['| File | Lines | Δ | Functions | Δ |', '|---|---:|---:|---:|---:|']
+                  out += rows
+              else:
+                  out.append('_No files with coverage data were changed in this PR._')
+              out.append('')
+
+          url = os.environ.get('ARTIFACT_URL', '')
+          if url:
+              out += [f'[Download HTML report]({url})', '']
+
+          with open('coverage-body.md', 'w') as fh:
+              fh.write('\n'.join(out) + '\n')
+
+          lines_pct = pct(ht['lh'], ht['lf'])
+          val = '' if lines_pct is None else f'{lines_pct:.2f}'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+              fh.write(f'total-coverage={val}\n')
+          PY
+          cat coverage-body.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post (or update) coverage comment on PR
+        if: always() && github.event_name == 'pull_request' && hashFiles('coverage-body.md') != ''
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: coverage
+          path: coverage-body.md
 
       - name: Publish test report
         if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
@@ -186,7 +327,7 @@ jobs:
           detailed_summary: true
           comment: ${{ github.event_name == 'pull_request' }}
           summary: |
-            **Coverage:** ${{ steps.coverage.outputs.total-coverage || 'n/a' }}% — [download HTML report](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ steps.coverage.outputs.artifact-id }})
+            **Coverage:** ${{ steps.coverage.outputs.total-coverage || 'n/a' }}% — [download HTML report](${{ steps.html-report.outputs.artifact-url || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }})
 
   clippy:
     name: cargo clippy
