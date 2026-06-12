@@ -791,3 +791,50 @@ mod tests {
         assert_eq!(actual, expected);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Temporary demo code for PR #21's coverage pipeline — do not merge.
+// Exercises the per-file "Files changed coverage rate" table in the CI
+// coverage comment and the JUnit failure verdict: one covered function, one
+// deliberately uncovered one, and one intentionally failing test.
+
+/// Returns true if `c` is an ASCII vowel.
+#[allow(dead_code)]
+pub(crate) fn is_ascii_vowel(c: char) -> bool {
+    matches!(c.to_ascii_lowercase(), 'a' | 'e' | 'i' | 'o' | 'u')
+}
+
+/// Counts ASCII vowels in `text`.
+#[allow(dead_code)]
+pub(crate) fn count_ascii_vowels(text: &str) -> usize {
+    text.chars().filter(|&c| is_ascii_vowel(c)).count()
+}
+
+/// Never called from anywhere — stays uncovered so the demo file shows a
+/// function-coverage rate below 100% in the per-file table.
+#[allow(dead_code)]
+pub(crate) fn count_ascii_consonants(text: &str) -> usize {
+    text.chars()
+        .filter(|c| c.is_ascii_alphabetic() && !is_ascii_vowel(*c))
+        .count()
+}
+
+#[cfg(test)]
+mod coverage_demo_tests {
+    use super::*;
+
+    #[test]
+    fn vowels_are_detected() {
+        assert!(is_ascii_vowel('A'));
+        assert!(is_ascii_vowel('e'));
+        assert!(!is_ascii_vowel('z'));
+    }
+
+    #[test]
+    fn vowel_count_demo_failure() {
+        // Intentionally wrong: "plsfix" contains exactly one vowel. This
+        // failure exists to exercise the CI failure path (the JUnit
+        // publisher's fail_on_failure verdict) — it is not a real bug.
+        assert_eq!(count_ascii_vowels("plsfix"), 3);
+    }
+}
