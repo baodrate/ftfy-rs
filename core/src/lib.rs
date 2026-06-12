@@ -720,7 +720,7 @@ fn _fix_encoding_one_step_and_explain(
     }
 
     // Fix individual characters of Latin-1 with a less satisfying explanation
-    if config.fix_c1_controls {
+    if config.fix_c1_controls && chardata::C1_CONTROL_RE.is_match(&text) {
         let fixed = fix_c1_controls(&text);
         let steps = if explain {
             Some(vec![ExplanationStep {
