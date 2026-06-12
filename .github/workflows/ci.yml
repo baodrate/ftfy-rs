@@ -78,12 +78,18 @@ jobs:
         # instrumentation and still honours the `ci` nextest profile,
         # which writes target/nextest/ci/junit.xml. So one command
         # produces both the JUnit report AND lcov.info.
-        # Don't fail the step on test failures — the publisher below
-        # sees the JUnit report and decides the verdict via `fail_on_failure`.
+        # --ignore-run-fail: without it llvm-cov doesn't write lcov.info
+        # when any test fails, so failing PRs got no coverage comment at
+        # all. With it the step exits 0 on test failures (the JUnit
+        # publisher below still delivers the verdict via
+        # `fail_on_failure`), and continue-on-error keeps build failures
+        # flowing to the missing-report guard instead of stopping the
+        # job here.
         continue-on-error: true
         run: |
           cargo llvm-cov nextest \
             --workspace --all-features --profile ci \
+            --ignore-run-fail \
             --lcov --output-path lcov.info
 
       - name: Fail if the test run produced no report
