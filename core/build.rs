@@ -61,7 +61,10 @@ fn write_html_entity_overlay(out: &mut impl Write) {
     )
     .unwrap();
     let mut builder = phf_codegen::Map::<&str>::new();
-    let escaped_vals: Vec<String> = entries.iter().map(|(_, v)| rust_string_literal(v)).collect();
+    let escaped_vals: Vec<String> = entries
+        .iter()
+        .map(|(_, v)| rust_string_literal(v))
+        .collect();
     for ((key, _), val_lit) in entries.iter().zip(escaped_vals.iter()) {
         builder.entry(key.as_str(), val_lit);
     }
