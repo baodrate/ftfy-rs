@@ -130,7 +130,7 @@ pub fn fix_latin_ligatures(text: &str) -> Cow<str> {
     all ligatures, use NFKC normalization.
     */
     if text.chars().any(|ch| lookup_ligature(ch).is_some()) {
-        let mut result = String::new();
+        let mut result = String::with_capacity(text.len());
 
         for ch in text.chars() {
             match lookup_ligature(ch) {
@@ -161,7 +161,7 @@ pub fn fix_character_width(text: &str) -> Cow<str> {
         return Cow::Borrowed(text);
     }
 
-    let mut result = String::new();
+    let mut result = String::with_capacity(text.len());
 
     for ch in text.chars() {
         match lookup_width(ch) {
