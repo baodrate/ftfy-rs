@@ -129,20 +129,28 @@ pub fn fix_latin_ligatures(text: &str) -> Cow<str> {
     and removing them may lose information. If you want to take apart nearly
     all ligatures, use NFKC normalization.
     */
-    if text.chars().any(|ch| lookup_ligature(ch).is_some()) {
-        let mut result = String::new();
-
-        for ch in text.chars() {
-            match lookup_ligature(ch) {
-                Some(replacement) => result.push_str(replacement),
-                None => result.push(ch),
-            }
-        }
-
-        Cow::Owned(result)
-    } else {
-        Cow::Borrowed(text)
+    // PERF: every key in `lookup_ligature` is >= U+0132 ('Ĳ'), well above
+    // ASCII. ASCII chars dominate real inputs, so skip the lookup for any
+    // codepoint < 0x80. If `lookup_ligature` ever grows a sub-0x80 key, this
+    // short-circuit must be revisited.
+    if !text
+        .chars()
+        .any(|ch| (ch as u32) >= 0x80 && lookup_ligature(ch).is_some())
+    {
+        return Cow::Borrowed(text);
     }
+
+    let result = text
+        .chars()
+        .fold(String::with_capacity(text.len()), |mut acc, ch| {
+            match ((ch as u32) >= 0x80).then(|| lookup_ligature(ch)).flatten() {
+                Some(s) => acc.push_str(s),
+                None => acc.push(ch),
+            }
+            acc
+        });
+
+    Cow::Owned(result)
 }
 
 pub fn fix_character_width(text: &str) -> Cow<str> {
@@ -157,18 +165,27 @@ pub fn fix_character_width(text: &str) -> Cow<str> {
     Note that this replaces the ideographic space, U+3000, with the ASCII
     space, U+20.
     */
-    if !text.chars().any(|ch| lookup_width(ch).is_some()) {
+    // PERF: every key in `lookup_width` is >= U+3000 (the ideographic space,
+    // then the U+FF01..U+FFEF fullwidth/halfwidth blocks). ASCII chars dominate
+    // real inputs, so skip the lookup for any codepoint < 0x80. If
+    // `lookup_width` ever grows a sub-0x80 key, this short-circuit must be
+    // revisited.
+    if !text
+        .chars()
+        .any(|ch| (ch as u32) >= 0x80 && lookup_width(ch).is_some())
+    {
         return Cow::Borrowed(text);
     }
 
-    let mut result = String::new();
-
-    for ch in text.chars() {
-        match lookup_width(ch) {
-            Some(replacement) => result.push(replacement),
-            None => result.push(ch),
-        }
-    }
+    let result = text
+        .chars()
+        .fold(String::with_capacity(text.len()), |mut acc, ch| {
+            match ((ch as u32) >= 0x80).then(|| lookup_width(ch)).flatten() {
+                Some(replacement) => acc.push(replacement),
+                None => acc.push(ch),
+            }
+            acc
+        });
 
     Cow::Owned(result)
 }
@@ -738,6 +755,31 @@ mod tests {
     #[test]
     fn test_fullwidth_numbers() {
         assert_eq!(fix_character_width("１２３４５"), "12345");
+    }
+
+    /// Regression test for the ASCII short-circuit in `fix_latin_ligatures` and
+    /// `fix_character_width`. Asserts the 0x80 boundary behaves correctly:
+    /// pure-ASCII (including U+007F) is borrowed unchanged, the codepoint just
+    /// above the boundary (U+0080) is preserved, and a real ligature / fullwidth
+    /// char above the threshold is still transformed.
+    #[test]
+    fn test_ascii_shortcircuit_boundary() {
+        // Pure ASCII including DEL (U+007F): unchanged.
+        let ascii = "abc\x7Fdef";
+        assert_eq!(fix_latin_ligatures(ascii), ascii);
+        assert_eq!(fix_character_width(ascii), ascii);
+
+        // ASCII + the codepoint just above the threshold (U+0080, PADDING CHAR):
+        // neither fixer touches it.
+        let just_above = "abc\u{0080}def";
+        assert_eq!(fix_latin_ligatures(just_above), just_above);
+        assert_eq!(fix_character_width(just_above), just_above);
+
+        // Real ligature above the threshold still gets expanded.
+        assert_eq!(fix_latin_ligatures("a\u{007F}\u{FB01}b"), "a\u{007F}fib");
+
+        // Real fullwidth char above the threshold still gets normalized.
+        assert_eq!(fix_character_width("a\u{007F}\u{FF21}b"), "a\u{007F}Ab");
     }
 
     #[test]
