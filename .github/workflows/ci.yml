@@ -30,6 +30,10 @@ jobs:
 
       - name: Cache cargo build artefacts
         uses: Swatinem/rust-cache@v2
+        with:
+          # Keep the cache per runner image — see the test job's cache
+          # step for the failure this prevents.
+          env-vars: ImageOS
 
       - name: cargo check
         run: cargo check --workspace --all-targets --all-features --locked
@@ -53,6 +57,16 @@ jobs:
 
       - name: Cache cargo build artefacts
         uses: Swatinem/rust-cache@v2
+        with:
+          # rust-cache's automatic key encodes runner.os ("Linux") but
+          # not the Ubuntu release, so when this job moved to 26.04 it
+          # restored dep artifacts built on 24.04 — including pyo3-ffi's
+          # cached build-script output, which pins the libpython found
+          # at detection time (`-lpython3.12`). 26.04 has no
+          # libpython3.12, so linking the python crate's test binary
+          # failed. Hashing the image name (ImageOS=ubuntu24/ubuntu26/…)
+          # into the key gives every image its own cache.
+          env-vars: ImageOS
 
       - name: Install cargo-nextest + cargo-llvm-cov
         uses: taiki-e/install-action@v2
@@ -185,6 +199,10 @@ jobs:
 
       - name: Cache cargo build artefacts
         uses: Swatinem/rust-cache@v2
+        with:
+          # Keep the cache per runner image — see the test job's cache
+          # step for the failure this prevents.
+          env-vars: ImageOS
 
       # rs-clippy-check posts findings as GitHub Checks API annotations on
       # the commit, and fails the job on any clippy error. GitHub caps
