@@ -2101,6 +2101,17 @@ mod ftfy_test_entities {
         );
     }
 
+    // Consecutive à-grave mojibake words must each decode to their own
+    // "à " — adjacent matches must not swallow the next word's leading
+    // `\xc3` or drop the separating space.
+    #[test]
+    fn test_fix_text_consecutive_a_grave_words() {
+        assert_eq!(fix_text("Ã Ã ", None), "à à ");
+        assert_eq!(fix_text("Ã Ã Ã ", None), "à à à ");
+        assert_eq!(fix_text("Ã Ã la", None), "à à la");
+        assert_eq!(fix_text("Ã la Ã mode", None), "à la à mode");
+    }
+
     // When unescaping changes the text, it's recorded as an `unescape_html`
     // step in the explanation plan.
     #[test]
