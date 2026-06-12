@@ -826,7 +826,7 @@ mod tests {
 
     #[test]
     fn test_messy_language_names_simplified_chinese() {
-        let original = "ç®€ä½“ä¸­æ–‡";
+        let original = "ç®€ä½“ä¸\u{AD}æ–‡";
         let expected = "简体中文";
         let result = fix_text(original, None);
         assert_eq!(result, expected);
@@ -834,7 +834,7 @@ mod tests {
 
     #[test]
     fn test_messy_language_names_traditional_chinese() {
-        let original = "æ­£é«”ä¸­æ–‡";
+        let original = "æ\u{AD}£é«”ä¸\u{AD}æ–‡";
         let expected = "正體中文";
         let result = fix_text(original, None);
         assert_eq!(result, expected);
@@ -850,7 +850,7 @@ mod tests {
 
     #[test]
     fn test_messy_language_names_korean() {
-        let original = "í•œêµ­ì–´";
+        let original = "í•œêµ\u{AD}ì–´";
         let expected = "한국어";
         let result = fix_text(original, None);
         assert_eq!(result, expected);
@@ -1044,7 +1044,7 @@ mod tests {
     #[test]
     fn test_lossy_utf8_windows_1250_mixup_in_spanish() {
         let original =
-            "Europa, Asia, Ă�frica, Norte, AmĂ©rica Central y del Sur, Australia y OceanĂ­a";
+            "Europa, Asia, Ă�frica, Norte, AmĂ©rica Central y del Sur, Australia y OceanĂ\u{AD}a";
         let expected =
             "Europa, Asia, �frica, Norte, América Central y del Sur, Australia y Oceanía";
         let result = fix_text(original, None);
@@ -1085,7 +1085,7 @@ mod tests {
 
     #[test]
     fn test_utf8_windows_1250_mixup_in_slovak() {
-        let original = "NapĂ­Ĺˇte nĂˇm !";
+        let original = "NapĂ\u{AD}Ĺˇte nĂˇm !";
         let expected = "Napíšte nám !";
         let result = fix_text(original, None);
         assert_eq!(result, expected);
@@ -1479,7 +1479,7 @@ mod tests {
 
     #[test]
     fn test_ã_quele_is_the_portuguese_word_àquele_not_à_quele() {
-        let original = "eliminado o antÃ­geno e mantidos os nÃ­veis de anticorpos, surgem as condiÃ§Ãµes necessÃ¡rias ao estabelecimento do granuloma, semelhante Ã quele observado nas lesÃµes por imunocomplexo em excesso de anticorpos";
+        let original = "eliminado o antÃ\u{AD}geno e mantidos os nÃ\u{AD}veis de anticorpos, surgem as condiÃ§Ãµes necessÃ¡rias ao estabelecimento do granuloma, semelhante Ã quele observado nas lesÃµes por imunocomplexo em excesso de anticorpos";
         let expected = "eliminado o antígeno e mantidos os níveis de anticorpos, surgem as condições necessárias ao estabelecimento do granuloma, semelhante àquele observado nas lesões por imunocomplexo em excesso de anticorpos";
         let result = fix_text(original, None);
         assert_eq!(result, expected);
