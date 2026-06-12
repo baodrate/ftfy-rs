@@ -271,10 +271,13 @@ jobs:
         run: cat bench-body.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Post (or update) results comment on PR
+        # Writes the "benchmark" section of the shared per-PR report
+        # comment (ci.yml's test job writes the "ci" section with test
+        # results + coverage), so the PR carries one bot comment total.
         if: always() && github.event_name == 'pull_request' && hashFiles('bench-body.md') != ''
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: ./.github/actions/pr-comment-section
         with:
-          header: gungraun-benchmark
+          section: benchmark
           path: bench-body.md
 
       - name: Fail job if the benchmark regressed

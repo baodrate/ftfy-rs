@@ -308,12 +308,62 @@ jobs:
           PY
           cat coverage-body.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Post (or update) coverage comment on PR
-        if: always() && github.event_name == 'pull_request' && hashFiles('coverage-body.md') != ''
-        uses: marocchino/sticky-pull-request-comment@v2
+      - name: Build test results section
+        # The PR comment's test verdict is rendered from junit.xml here
+        # (mikepenz's own PR comment is disabled below) so that tests,
+        # coverage, and the benchmark all share one report comment.
+        if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse('target/nextest/ci/junit.xml').getroot()
+          tests = failures = errors = skipped = 0
+          failed = []
+          for ts in root.iter('testsuite'):
+              for tc in ts.iter('testcase'):
+                  tests += 1
+                  if tc.find('failure') is not None:
+                      failures += 1
+                      failed.append(f"{tc.get('classname')}::{tc.get('name')}")
+                  elif tc.find('error') is not None:
+                      errors += 1
+                      failed.append(f"{tc.get('classname')}::{tc.get('name')}")
+                  elif tc.find('skipped') is not None:
+                      skipped += 1
+          passed = tests - failures - errors - skipped
+          verdict = '❌' if failures or errors else '✅'
+          out = ['### Tests', '']
+          out.append(f'{verdict} **{tests} ran** — {passed} passed, '
+                     f'{skipped} skipped, {failures + errors} failed')
+          if failed:
+              out.append('')
+              out += [f'- ❌ `{name}`' for name in failed]
+          out.append('')
+          with open('test-body.md', 'w') as fh:
+              fh.write('\n'.join(out) + '\n')
+          PY
+
+      - name: Assemble the CI report section
+        if: always() && (hashFiles('coverage-body.md') != '' || hashFiles('test-body.md') != '')
+        run: |
+          : > ci-body.md
+          for f in test-body.md coverage-body.md; do
+            if [ -f "$f" ]; then
+              cat "$f" >> ci-body.md
+              echo >> ci-body.md
+            fi
+          done
+
+      - name: Post (or update) the PR report comment
+        # Tests + coverage go into the "ci" section of the shared
+        # per-PR report comment; benchmark.yml writes the "benchmark"
+        # section of the same comment.
+        if: always() && github.event_name == 'pull_request' && hashFiles('ci-body.md') != ''
+        uses: ./.github/actions/pr-comment-section
         with:
-          header: coverage
-          path: coverage-body.md
+          section: ci
+          path: ci-body.md
 
       - name: Publish test report
         if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
@@ -325,7 +375,10 @@ jobs:
           fail_on_failure: true
           require_tests: true
           detailed_summary: true
-          comment: ${{ github.event_name == 'pull_request' }}
+          # The PR comment comes from the unified report comment above
+          # (test results + coverage + benchmark in one); mikepenz still
+          # owns the check run, annotations, and the job verdict.
+          comment: false
           summary: |
             **Coverage:** ${{ steps.coverage.outputs.total-coverage || 'n/a' }}% — [download HTML report](${{ steps.html-report.outputs.artifact-url || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }})
 
