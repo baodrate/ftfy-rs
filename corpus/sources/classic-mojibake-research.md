@@ -76,3 +76,45 @@ oddities) and is reachable, unlike the arborelia post.
 - Dampfkraft "Field Guide to Japanese Mojibake" — 繧/縺/繝 fingerprints,
   EUC-JP-as-Shift-JIS half-width-katakana texture.
 - miyagawa/Encode-DoubleEncodedUTF8 — double-encoding test vectors.
+
+## Round 2 research (CJK + double-encoding agents, 2026-06-13)
+
+Two further agents mined CJK and double-encoding samples. New entries
+promoted to `famous-incidents.json` (all recomputed from intended text and
+byte-verified against the cited form, per the corpus rule):
+
+| Entry | Garbled | Intended | Chain | Source |
+|---|---|---|---|---|
+| jp-kasou-machine | `莉ｮ諠ｳ繝槭す…` | 仮想マシンサービス | UTF-8 as CP932 | github.com/anthropics/claude-code#36061 |
+| jp-zip-hitomi | `é╨é╞é▌.png` | ひとみ.png | cp932 as cp437 | eatpeppershothot.blogspot.com |
+| zh-nihao-latin1 | `ä½\xa0å¥½` | 你好 | UTF-8 as Latin-1 | Old New Thing |
+| zh-nihao-gbk-latin1 | `ÄãºÃ` | 你好 | GBK as Latin-1 | ssojet |
+| beatport-ubersprung | `Ãœbersprung…` | Übersprung (Original Mix) | UTF-8 as cp1252 (ID3 was double-encoded) | gehrcke.de |
+| hotel-doctest | `HÃ"TEL` | HÔTEL | UTF-8 as cp1252 | ftfy docs |
+| ete | `Ã©tÃ©` | été | UTF-8 as Latin-1 | blog.conceptnet.io |
+| mysql-doubly-spanish | `ÃƒÂ¡ ÃƒÂ©…` | á é ó ñ | UTF-8/cp1252 ×2 | jonisalonen.com |
+| theyre-curl | `theyâ€™re` | they're | UTF-8 as cp1252 | justinweiss.com |
+| ala-{elsinoe,helicoon,parepichloe,zignoella} | `…Ã«`/`…Ã¶` | Elsinoë/Helicoön/… | UTF-8 as Latin-1 | datafix.com.au |
+| muller-double | `MÃƒÂ¼ller` | Müller | UTF-8/cp1252 ×2 | blogs.perl.org/chansen |
+| jp-fieldguide-{sjis,eucjp} | 繧/縺/繝 texture | 日本語のテキスト | UTF-8 / EUC-JP as Shift-JIS | dampfkraft.com |
+
+### Deliberately NOT added (would require fabrication or non-Python codecs)
+- **Vietnamese TCVN3/VISCII** (`tiếng Việt`→`tiÕng ViÖt`, `â`→`aÃ¢`): needs
+  TCVN3/VISCII codecs Python lacks; not reproducible without a custom map,
+  so excluded rather than transcribed by hand.
+- **联通 Notepad bug**: the agent's "GBK bytes look like valid UTF-8" claim
+  did not check out — `联通`.encode('gbk') = C1 AA CD A8 is *not* valid
+  UTF-8 (it's an IsTextUnicode misdetection, like 'Bush hid the facts',
+  not a clean decode). Excluded to avoid a hallucinated chain. (Good
+  example of the round-trip rule catching a plausible-but-wrong sample.)
+- **ISO-2022-JP escape-stripping** (`?$B%1!<%?%$(B`): escape-sequence
+  mangling, not a codec misread; out of scope for both fixers.
+
+### "Never lose a dead end" — second confirmation of non-recovery
+Both round-2 agents independently failed to find the rspeer post under that
+title. One surfaced the only real posts.arborelia.net page that indexes —
+"Until I Fall" (2025-07-19), song lyrics, unrelated. The post is either
+unindexed or misremembered; its contents remain unrecovered and are not
+reconstructed. The corpus's round-trip-verification design already
+embodies the post's evident thesis (real mojibake is invertible;
+hallucinated mojibake is not), so nothing in the methodology depends on it.

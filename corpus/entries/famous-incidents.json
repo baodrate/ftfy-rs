@@ -566,6 +566,198 @@
     "ftfy_recovers": false
   },
   {
+    "id": "famous-beatport-ubersprung",
+    "label": "Ãœbersprung — Beatport ID3 tag 'Übersprung (Original Mix)' shown as UTF-8/cp1252",
+    "lang": "de",
+    "intended": "Übersprung (Original Mix)",
+    "mojibake": "Ãœbersprung (Original Mix)",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://gehrcke.de/2014/07/mojibake-beatports-id3-text-encoding-is-broken/",
+      "notes": "The ID3 bytes were double-encoded; players decode them to this visible Ãœ… form, which is what a fixer actually receives."
+    },
+    "verified": true,
+    "ftfy_output": "Übersprung (Original Mix)",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-hotel-doctest",
+    "label": "HÃ”TEL — French 'HÔTEL' as UTF-8/cp1252 (ftfy doctest)",
+    "lang": "fr",
+    "intended": "HÔTEL",
+    "mojibake": "HÃ”TEL",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://ftfy.readthedocs.io/en/latest/explain.html",
+      "notes": ""
+    },
+    "verified": true,
+    "ftfy_output": "HÔTEL",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-ete",
+    "label": "Ã©tÃ© — French 'été' (summer) as UTF-8/Latin-1",
+    "lang": "fr",
+    "intended": "été",
+    "mojibake": "Ã©tÃ©",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "latin-1"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "http://blog.conceptnet.io/ftfy/",
+      "notes": ""
+    },
+    "verified": true,
+    "ftfy_output": "été",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-mysql-doubly-spanish",
+    "label": "ÃƒÂ¡ ÃƒÂ© ÃƒÂ³ ÃƒÂ± — Spanish 'á é ó ñ' doubly UTF-8-encoded in MySQL",
+    "lang": "es",
+    "intended": "á é ó ñ",
+    "mojibake": "ÃƒÂ¡ ÃƒÂ© ÃƒÂ³ ÃƒÂ±",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      },
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://jonisalonen.com/2012/fixing-doubly-utf-8-encoded-text-in-mysql/",
+      "notes": "jonisalonen's canonical doubly-encoded case: á = E1 -> C3 A1 -> C3 83 C2 A1; ~30,000 affected forum posts."
+    },
+    "verified": true,
+    "ftfy_output": "á é ó ñ",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-jp-kasou-machine-cp932",
+    "label": "莉ｮ諠ｳ繝槭す… — Japanese '仮想マシンサービス' as UTF-8 read as CP932/Shift-JIS",
+    "lang": "ja",
+    "intended": "仮想マシンサービス",
+    "mojibake": "莉ｮ諠ｳ繝槭す繝ｳ繧ｵ繝ｼ繝薙せ",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "cp932",
+        "errors": "replace"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://github.com/anthropics/claude-code/issues/36061",
+      "notes": "'virtual machine service'; a real terminal-output mojibake report. The 繧/縺/繝 field-guide texture in action."
+    },
+    "verified": true,
+    "ftfy_output": "莉ョ諠ウ繝槭す繝ウ繧オ繝シ繝薙せ",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "famous-jp-zip-hitomi",
+    "label": "é╨é╞é▌.png — Japanese ZIP filename 'ひとみ.png' (cp932 read as cp437)",
+    "lang": "ja",
+    "intended": "ひとみ.png",
+    "mojibake": "é╨é╞é▌.png",
+    "chain": [
+      {
+        "encode": "cp932"
+      },
+      {
+        "decode": "cp437",
+        "errors": "replace"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://eatpeppershothot.blogspot.com/2014/07/how-to-fix-broken-cjk-filenames.html",
+      "notes": "ZIP spec only blesses cp437 + UTF-8, so cp932 filenames surface as DOS box-drawing soup on extraction."
+    },
+    "verified": true,
+    "ftfy_output": "é╨é╞é▌.png",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "famous-zh-nihao-latin1",
+    "label": "ä½\\xa0å¥½ — Chinese '你好' (hello) as UTF-8 read as Latin-1",
+    "lang": "zh-Hans",
+    "intended": "你好",
+    "mojibake": "ä½ å¥½",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "latin-1"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://devblogs.microsoft.com/oldnewthing/20190701-00/?p=102636",
+      "notes": "你 = E4 BD A0; the A0 byte is NBSP under Latin-1 (snippets often show it as a plain space — the computed byte-exact form keeps the NBSP)."
+    },
+    "verified": true,
+    "ftfy_output": "你好",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-zh-nihao-gbk-latin1",
+    "label": "ÄãºÃ — Chinese '你好' stored as GBK, read as Latin-1",
+    "lang": "zh-Hans",
+    "intended": "你好",
+    "mojibake": "ÄãºÃ",
+    "chain": [
+      {
+        "encode": "gbk"
+      },
+      {
+        "decode": "latin-1"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://ssojet.com/compare-character-encoding/gbk-vs-big5",
+      "notes": "Legacy-codec-as-Latin-1, the GBK analogue of the UTF-8/Latin-1 case."
+    },
+    "verified": true,
+    "ftfy_output": "ÄãºÃ",
+    "ftfy_recovers": false
+  },
+  {
     "id": "famous-tangtangtang",
     "label": "烫烫烫 ('scalding') — MSVC 0xCC stack-fill bytes read as GBK",
     "lang": "zh-Hans",
