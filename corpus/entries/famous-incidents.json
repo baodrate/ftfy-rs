@@ -1,0 +1,448 @@
+[
+  {
+    "id": "famous-bush-hid-the-facts",
+    "label": "'Bush hid the facts' — Windows Notepad IsTextUnicode bug (2004)",
+    "lang": "en",
+    "intended": "Bush hid the facts",
+    "mojibake": "畂桳栠摩琠敨映捡獴",
+    "chain": [
+      {
+        "encode": "ascii"
+      },
+      {
+        "decode": "utf-16-le"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://en.wikipedia.org/wiki/Bush_hid_the_facts",
+      "notes": "ASCII misdetected as UTF-16LE by IsTextUnicode(); pairs of ASCII bytes become CJK codepoints. Note: not classic mojibake — neither ftfy nor plsfix targets this, so it documents a non-goal."
+    },
+    "verified": true,
+    "ftfy_output": "畂桳栠摩琠敨映捡獴",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "famous-kunjinkao-replacement",
+    "label": "锟斤拷 — double U+FFFD encoded UTF-8, decoded GBK (Chinese ▢ folklore)",
+    "lang": "zh-Hans",
+    "intended": "��",
+    "mojibake": "锟斤拷",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "gbk"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://en.wikipedia.org/wiki/Mojibake ; https://github.com/Ovler-Young/Mojibake-recovery",
+      "notes": "Two replacement chars (EF BF BD EF BF BD) re-encoded UTF-8 then read as GBK pair up into 锟/斤/拷. The seed is genuinely lossy garbage."
+    },
+    "verified": true,
+    "ftfy_output": "锟斤拷",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "famous-bnopnya",
+    "label": "бНОПНЯ — Russian 'Вопрос' as CP1251 read as KOI8-R (the iconic krakozyabры)",
+    "lang": "ru",
+    "intended": "Вопрос",
+    "mojibake": "бНОПНЯ",
+    "chain": [
+      {
+        "encode": "windows-1251"
+      },
+      {
+        "decode": "koi8-r"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://neolurk.org/wiki/БНОПНЯ ; https://cyclowiki.org/wiki/Кракозябры",
+      "notes": "The single most famous Russian mojibake string; KOI8-R⇄CP1251 swaps case ranges, so it stays letter-shaped and almost pronounceable."
+    },
+    "verified": true,
+    "ftfy_output": "бНОПНЯ",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "famous-ophbet",
+    "label": "оПХБЕР — Russian 'Привет' as CP1251 read as KOI8-R",
+    "lang": "ru",
+    "intended": "Привет",
+    "mojibake": "оПХБЕР",
+    "chain": [
+      {
+        "encode": "windows-1251"
+      },
+      {
+        "decode": "koi8-r"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://dic.academic.ru/dic.nsf/ruwiki/1069825",
+      "notes": "Has its own dictionary entry. Capital П (0xCF) maps to lowercase KOI8 'о', hence the lowercase first letter."
+    },
+    "verified": true,
+    "ftfy_output": "оПХБЕР",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "famous-ala-aseroe-single",
+    "label": "AseroÃ« — fungal genus Aseroë, UTF-8/Latin-1 (Atlas of Living Australia)",
+    "lang": "la",
+    "intended": "Aseroë",
+    "mojibake": "AseroÃ«",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "latin-1"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://www.datafix.com.au/BASHing/2020-04-01.html",
+      "notes": "Taxonomic diaeresis names mangled in a biodiversity database."
+    },
+    "verified": true,
+    "ftfy_output": "Aseroë",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-ala-aseroe-double",
+    "label": "AseroÃƒÂ« — same genus, double UTF-8/cp1252 conversion",
+    "lang": "la",
+    "intended": "Aseroë",
+    "mojibake": "AseroÃƒÂ«",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      },
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://www.datafix.com.au/BASHing/2020-04-01.html",
+      "notes": "The article documents the byte-by-byte double conversion explicitly."
+    },
+    "verified": true,
+    "ftfy_output": "Aseroë",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-ala-naïs",
+    "label": "NaÃ¯s — fungal genus Naïs, UTF-8/Latin-1 (Atlas of Living Australia)",
+    "lang": "la",
+    "intended": "Naïs",
+    "mojibake": "NaÃ¯s",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "latin-1"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://www.datafix.com.au/BASHing/2020-04-01.html",
+      "notes": ""
+    },
+    "verified": true,
+    "ftfy_output": "Naïs",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-norwegian-smorbrod",
+    "label": "SmÃ¸rbrÃ¸d — Norwegian 'Smørbrød' (open sandwich) as UTF-8/Latin-1",
+    "lang": "no",
+    "intended": "Smørbrød",
+    "mojibake": "SmÃ¸rbrÃ¸d",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "latin-1"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://en.wikipedia.org/wiki/Mojibake",
+      "notes": ""
+    },
+    "verified": true,
+    "ftfy_output": "Smørbrød",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-korean-hangugeo",
+    "label": "í•œêµ­ì–´ — Korean '한국어' (Korean language) as UTF-8/cp1252",
+    "lang": "ko",
+    "intended": "한국어",
+    "mojibake": "í•œêµ­ì–´",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://ssojet.com/compare-character-encoding/euc-kr-vs-utf-8",
+      "notes": ""
+    },
+    "verified": true,
+    "ftfy_output": "한국어",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-russian-privet-utf8",
+    "label": "Ð¿Ñ€Ð¸Ð²ÐµÑ‚ — Russian 'привет' (hello) as UTF-8/cp1252",
+    "lang": "ru",
+    "intended": "привет",
+    "mojibake": "Ð¿Ñ€Ð¸Ð²ÐµÑ‚",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://grokipedia.com/page/Mojibake",
+      "notes": ""
+    },
+    "verified": true,
+    "ftfy_output": "привет",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-german-fuer",
+    "label": "fÃ¼r — German 'für' as UTF-8/Latin-1 (Wikipedia lead example)",
+    "lang": "de",
+    "intended": "für",
+    "mojibake": "fÃ¼r",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "latin-1"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://en.wikipedia.org/wiki/Mojibake",
+      "notes": ""
+    },
+    "verified": true,
+    "ftfy_output": "für",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-cafe",
+    "label": "cafÃ© — 'café' as UTF-8/Latin-1 (the canonical one-word example)",
+    "lang": "fr",
+    "intended": "café",
+    "mojibake": "cafÃ©",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "latin-1"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://unicodefyi.com/glossary/mojibake/",
+      "notes": ""
+    },
+    "verified": true,
+    "ftfy_output": "café",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-emdash-scherlis",
+    "label": "â€\" — em dash '—' as UTF-8/cp1252 (Scherlis, New Frontiers in Mojibake)",
+    "lang": "en",
+    "intended": "—",
+    "mojibake": "â€”",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://adam.scherlis.com/2022/11/25/new-frontiers-in-mojibake/",
+      "notes": "E2 80 94 → â € \" under cp1252; the textbook punctuation case."
+    },
+    "verified": true,
+    "ftfy_output": "—",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-arent-dont",
+    "label": "arenâ€™t … donâ€™t — curly apostrophes as UTF-8/cp1252 (rspeer ftfy 3.0)",
+    "lang": "en",
+    "intended": "If numbers aren’t beautiful, I don’t know what is",
+    "mojibake": "If numbers arenâ€™t beautiful, I donâ€™t know what is",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "http://rspeer.github.io/blog/2013/08/26/ftfy-fixes-text-for-you-3-dot-0/",
+      "notes": ""
+    },
+    "verified": true,
+    "ftfy_output": "If numbers aren't beautiful, I don't know what is",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "famous-leon-rocha",
+    "label": "LeÃ³n Rochaâ€™s — 'León Rocha's' as UTF-8/cp1252 (alexwlchan fix_and_explain)",
+    "lang": "es",
+    "intended": "Amadeo León Rocha’s plight",
+    "mojibake": "Amadeo LeÃ³n Rochaâ€™s plight",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://alexwlchan.net/notes/2025/ftfy-fix-and-explain/",
+      "notes": "alexwlchan reports ftfy's explanation: sloppy-windows-1252 / utf-8 / uncurl_quotes — a good explain-step cross-check."
+    },
+    "verified": true,
+    "ftfy_output": "Amadeo León Rocha's plight",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "famous-shrug-thai",
+    "label": "(à¸‡'âŒ£')à¸‡ — Thai kaomoji '(ง'⌣')ง' as UTF-8/cp1252 (plsfix README headline)",
+    "lang": "th",
+    "intended": "(ง'⌣')ง",
+    "mojibake": "(à¸‡'âŒ£')à¸‡",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "plsfix README; ftfy README",
+      "notes": "The README's marquee example; ง is Tho Thong (U+0E07)."
+    },
+    "verified": true,
+    "ftfy_output": "(ง'⌣')ง",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-tangtangtang",
+    "label": "烫烫烫 ('scalding') — MSVC 0xCC stack-fill bytes read as GBK",
+    "lang": "zh-Hans",
+    "intended": null,
+    "mojibake": "烫烫烫",
+    "chain": [
+      {
+        "raw_bytes_hex": "cccccccccccc"
+      },
+      {
+        "decode": "gbk",
+        "errors": "replace"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident-bytes",
+      "source": "https://blog.csdn.net/jarelzhou/article/details/19013037",
+      "notes": "Uninitialized stack memory (debug fill 0xCC) printed as a string on a Chinese-locale Windows. Not recoverable text; documents a non-goal."
+    },
+    "verified": true,
+    "ftfy_output": "烫烫烫",
+    "ftfy_recovers": null
+  },
+  {
+    "id": "famous-tuntuntun",
+    "label": "屯屯屯 — MSVC 0xCD heap-fill bytes read as GBK",
+    "lang": "zh-Hans",
+    "intended": null,
+    "mojibake": "屯屯屯",
+    "chain": [
+      {
+        "raw_bytes_hex": "cdcdcdcdcdcd"
+      },
+      {
+        "decode": "gbk",
+        "errors": "replace"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident-bytes",
+      "source": "https://www.cnblogs.com/imjustice/archive/2012/03/05/2623915.html",
+      "notes": "Heap debug fill (0xCD); the heap counterpart of 烫烫烫."
+    },
+    "verified": true,
+    "ftfy_output": "屯屯屯",
+    "ftfy_recovers": null
+  },
+  {
+    "id": "famous-utf8-bom-as-gbk",
+    "label": "锘 — UTF-8 BOM (EF BB BF) read as GBK",
+    "lang": "zh-Hans",
+    "intended": null,
+    "mojibake": "锘�",
+    "chain": [
+      {
+        "raw_bytes_hex": "efbbbf"
+      },
+      {
+        "decode": "gbk",
+        "errors": "replace"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident-bytes",
+      "source": "https://blog.csdn.net/jarelzhou/article/details/19013037",
+      "notes": "BOM-as-text artifact at file starts on Chinese-locale tools."
+    },
+    "verified": true,
+    "ftfy_output": "锘�",
+    "ftfy_recovers": null
+  }
+]

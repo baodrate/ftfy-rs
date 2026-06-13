@@ -1,0 +1,503 @@
+[
+  {
+    "id": "classic-lopez-shipping-label",
+    "label": "Ode to a Shipping Label: LóPEZ triple-HTML-escaped mojibake",
+    "lang": "es",
+    "intended": "LóPEZ",
+    "mojibake": "L&AMP;AMP;ATILDE;&AMP;AMP;SUP3;PEZ",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "latin-1"
+      },
+      {
+        "transform": "html_named"
+      },
+      {
+        "transform": "html_escape"
+      },
+      {
+        "transform": "html_escape"
+      },
+      {
+        "transform": "uppercase"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "ftfy docs/explain.rst; poem by Carlos Bueno (https://imgur.com/4J7Il0m)",
+      "notes": "Real shipping label addressed to 'L&AMP;AMP;ATILDE;&AMP;AMP;SUP3;PEZ'. The label printer uppercased the entity names."
+    },
+    "verified": true,
+    "ftfy_output": "LóPEZ",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "classic-mona-lisa-triple",
+    "label": "Mona Lisa: triple UTF-8/Windows-1252 mojibake of a curly apostrophe",
+    "lang": "en",
+    "intended": "The Mona Lisa doesn’t have eyebrows.",
+    "mojibake": "The Mona Lisa doesnÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢t have eyebrows.",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      },
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      },
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "third-party/python-ftfy (docs/, ftfy/__init__.py docstrings, README)",
+      "notes": "README headline example of multi-layer mojibake."
+    },
+    "verified": true,
+    "ftfy_output": "The Mona Lisa doesn't have eyebrows.",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "classic-humanite-curl",
+    "label": "l'humanité: mojibake with smart quotes applied on top",
+    "lang": "fr",
+    "intended": "l'humanité",
+    "mojibake": "l’humanitÃ©",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      },
+      {
+        "transform": "curl_apostrophe"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "third-party/python-ftfy (docs/, ftfy/__init__.py docstrings, README)",
+      "notes": "Cannot be decoded consistently until the curled quote is straightened."
+    },
+    "verified": true,
+    "ftfy_output": "l'humanité",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "classic-perturber-nbsp",
+    "label": "à perturber: U+A0 in mojibake flattened to ASCII space",
+    "lang": "fr",
+    "intended": "à perturber la réflexion",
+    "mojibake": "Ã  perturber la rÃ©flexion",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      },
+      {
+        "transform": "nbsp_to_space"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "third-party/python-ftfy (docs/, ftfy/__init__.py docstrings, README)",
+      "notes": "Ã + NBSP for 'à'; NBSP became a plain space."
+    },
+    "verified": true,
+    "ftfy_output": "à perturber la réflexion",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "classic-perturber-nbsp-gone",
+    "label": "à perturber: U+A0 in mojibake deleted entirely",
+    "lang": "fr",
+    "intended": "à perturber la réflexion",
+    "mojibake": "Ã perturber la rÃ©flexion",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      },
+      {
+        "transform": "nbsp_to_nothing"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "third-party/python-ftfy (docs/, ftfy/__init__.py docstrings, README)",
+      "notes": "Same as above but the NBSP was dropped, leaving bare Ã."
+    },
+    "verified": true,
+    "ftfy_output": "à perturber la réflexion",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "classic-perez-entities",
+    "label": "P&EACUTE;REZ: wrongly-capitalized HTML entity",
+    "lang": "es",
+    "intended": "PÉREZ",
+    "mojibake": "P&EACUTE;REZ",
+    "chain": [
+      {
+        "transform": "html_named"
+      },
+      {
+        "transform": "uppercase"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "third-party/python-ftfy (docs/, ftfy/__init__.py docstrings, README)",
+      "notes": "Only 'P&Eacute;REZ' is valid HTML5; ftfy accepts the all-caps form."
+    },
+    "verified": true,
+    "ftfy_output": "PÉREZ",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "classic-shrug-macr",
+    "label": "Shrug kaomoji with &macr; entities and UTF-8/Latin-1 arms",
+    "lang": "ja",
+    "intended": "¯\\_(ツ)_/¯",
+    "mojibake": "&macr;\\_(ã)_/&macr;",
+    "chain": [
+      {
+        "transform": "macron_entity"
+      },
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "latin-1"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "third-party/python-ftfy (docs/, ftfy/__init__.py docstrings, README)",
+      "notes": "fix_text docstring: '&macr;\\\\_(ã\\x83\\x84)_/&macr;'."
+    },
+    "verified": true,
+    "ftfy_output": "¯\\_(ツ)_/¯",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "classic-face-cli-fixture",
+    "label": "Kaomoji ┒(⌣˛⌣)┎ as UTF-8/Windows-1252 (upstream CLI test fixture)",
+    "lang": "und",
+    "intended": "┒(⌣˛⌣)┎\n",
+    "mojibake": "â”’(âŒ£Ë›âŒ£)â”Ž\n",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "third-party/python-ftfy/tests/face.txt",
+      "notes": "Used by upstream test_cli.py as a file of real mojibake."
+    },
+    "verified": true,
+    "ftfy_output": "┒(⌣˛⌣)┎\n",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "classic-schoen",
+    "label": "schön as UTF-8/Windows-1252 (fix_and_explain docstring)",
+    "lang": "de",
+    "intended": "schön",
+    "mojibake": "schÃ¶n",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "third-party/python-ftfy (docs/, ftfy/__init__.py docstrings, README)",
+      "notes": ""
+    },
+    "verified": true,
+    "ftfy_output": "schön",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "classic-so",
+    "label": "só as UTF-8/Windows-1252 (fix_encoding_and_explain docstring)",
+    "lang": "pt",
+    "intended": "só",
+    "mojibake": "sÃ³",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "third-party/python-ftfy (docs/, ftfy/__init__.py docstrings, README)",
+      "notes": ""
+    },
+    "verified": true,
+    "ftfy_output": "só",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "classic-voila-nbsp",
+    "label": "voilà le travail with flattened NBSP (fix_encoding_and_explain docstring)",
+    "lang": "fr",
+    "intended": "voilà le travail",
+    "mojibake": "voilÃ  le travail",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      },
+      {
+        "transform": "nbsp_to_space"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "third-party/python-ftfy (docs/, ftfy/__init__.py docstrings, README)",
+      "notes": ""
+    },
+    "verified": true,
+    "ftfy_output": "voilà le travail",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "wiki-mojibake-jp-utf8-latin1",
+    "label": "文字化け (the word 'mojibake') as UTF-8 read as Latin-1",
+    "lang": "ja",
+    "intended": "文字化け",
+    "mojibake": "æå­åã",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "latin-1"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "https://en.wikipedia.org/wiki/Mojibake",
+      "notes": "The article's titular example renders as 'æ–‡å­—åŒ–ã'-style garbage."
+    },
+    "verified": true,
+    "ftfy_output": "文字化け",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "wiki-mojibake-ru-krakozyabry",
+    "label": "кракозябры: Russian CP1251 bytes read as KOI8-R",
+    "lang": "ru",
+    "intended": "Кракозябры",
+    "mojibake": "йПЮЙНГЪАПШ",
+    "chain": [
+      {
+        "encode": "windows-1251"
+      },
+      {
+        "decode": "koi8-r"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "https://en.wikipedia.org/wiki/Mojibake (Russian section)",
+      "notes": "The classic Russian name for mojibake, garbled the classic way."
+    },
+    "verified": true,
+    "ftfy_output": "йПЮЙНГЪАПШ",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "wiki-mojibake-ru-voprosy",
+    "label": "ВОПРОСЫ: Russian KOI8-R bytes read as CP1251 (бнопня lore)",
+    "lang": "ru",
+    "intended": "Вопросы",
+    "mojibake": "чПРТПУЩ",
+    "chain": [
+      {
+        "encode": "koi8-r"
+      },
+      {
+        "decode": "windows-1251"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "Russian internet lore; https://ru.wikipedia.org/wiki/Кракозябры",
+      "notes": "KOI8-R⇄CP1251 confusion preserves letter-ness, producing readable-looking gibberish."
+    },
+    "verified": true,
+    "ftfy_output": "чПРТПУЩ",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "wiki-mojibake-de-umlauts",
+    "label": "German umlauts as UTF-8/Latin-1",
+    "lang": "de",
+    "intended": "Größenwahnsinniger Übermut für müde Wüstenfüchse",
+    "mojibake": "GrÃ¶Ãenwahnsinniger Ãbermut fÃ¼r mÃ¼de WÃ¼stenfÃ¼chse",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "latin-1"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "https://en.wikipedia.org/wiki/Mojibake (German section)",
+      "notes": "für→fÃ¼r is the canonical German example."
+    },
+    "verified": true,
+    "ftfy_output": "Größenwahnsinniger Übermut für müde Wüstenfüchse",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "wiki-mojibake-sv-smorgas",
+    "label": "Swedish räksmörgås as UTF-8/Latin-1",
+    "lang": "sv",
+    "intended": "Beställ en räksmörgås på smörgåsbordet",
+    "mojibake": "BestÃ¤ll en rÃ¤ksmÃ¶rgÃ¥s pÃ¥ smÃ¶rgÃ¥sbordet",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "latin-1"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "https://en.wikipedia.org/wiki/Mojibake (Swedish section)",
+      "notes": ""
+    },
+    "verified": true,
+    "ftfy_output": "Beställ en räksmörgås på smörgåsbordet",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "classic-mysql-latin1-chinese",
+    "label": "中文 as UTF-8 stored in a MySQL latin1 column",
+    "lang": "zh-Hans",
+    "intended": "中文编码",
+    "mojibake": "ä¸­æç¼ç ",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "latin-1"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "Ubiquitous MySQL latin1/utf8 bug-report lore ('ä¸­æ–‡')",
+      "notes": "The single most-reported CJK mojibake pattern on Stack Overflow."
+    },
+    "verified": true,
+    "ftfy_output": "中文编码",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "classic-bom-artifact",
+    "label": "UTF-8 BOM read as Windows-1252 at start of a CSV (ï»¿)",
+    "lang": "en",
+    "intended": "﻿Name,Email",
+    "mojibake": "ï»¿Name,Email",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      }
+    ],
+    "provenance": {
+      "type": "documented",
+      "source": "Ubiquitous Excel/CSV bug-report lore",
+      "notes": "ï»¿ at the start of files is the UTF-8 BOM misread as cp1252."
+    },
+    "verified": true,
+    "ftfy_output": "Name,Email",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "mystery-melanie-triple-utf8",
+    "label": "Comment signature 'MÃÂ©ÃÂ¬ÃÂ¡nie' (triple-UTF-8 for 'M鬡nie', probably a French name)",
+    "lang": "fr",
+    "intended": null,
+    "mojibake": "MÃÂ©ÃÂ¬ÃÂ¡nie",
+    "chain": null,
+    "provenance": {
+      "type": "wild-unsolved",
+      "source": "third-party/python-ftfy/notes/mysteries.txt; https://www.nipette.com/article-6358031.html",
+      "notes": "rspeer: 'This happens to be triple-UTF-8 for M鬡nie, but that's probably not the name they meant.' Plausibly Mélanie through a lossy chain."
+    },
+    "verified": false,
+    "ftfy_output": "M鬡nie",
+    "ftfy_recovers": null
+  },
+  {
+    "id": "mystery-tadeas-nested",
+    "label": "Czech name Tadeáš nested ~15 layers deep",
+    "lang": "cs",
+    "intended": null,
+    "mojibake": "TadeÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¡ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¡",
+    "chain": null,
+    "provenance": {
+      "type": "wild-unsolved",
+      "source": "third-party/python-ftfy/notes/mysteries.txt; https://www.horoskopy-horoskop.cz/clanek/431-numerologicky-vyznam-jmena-jaromir",
+      "notes": "rspeer's unsolved mystery; deeply nested UTF-8/Latin-1-ish with lost bytes."
+    },
+    "verified": false,
+    "ftfy_output": "TadeÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂáÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂá",
+    "ftfy_recovers": null
+  },
+  {
+    "id": "mystery-montreal-cp850ish",
+    "label": "'montrã©al' — looks like Montréal but rspeer notes it isn't quite cp850",
+    "lang": "fr",
+    "intended": null,
+    "mojibake": "montrã©al",
+    "chain": null,
+    "provenance": {
+      "type": "wild-unsolved",
+      "source": "third-party/python-ftfy/notes/mysteries.txt; https://mtlurb.com/tags/arbres/",
+      "notes": "Lowercase ã© instead of Ã©: a case-folding pass ran *after* the mojibake."
+    },
+    "verified": false,
+    "ftfy_output": "montrã©al",
+    "ftfy_recovers": null
+  }
+]

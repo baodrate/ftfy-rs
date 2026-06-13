@@ -1,0 +1,3 @@
+# Reference implementation the corpus is verified against. Pinned so that
+# ftfy_output / ftfy_recovers fields are reproducible.
+ftfy==6.3.1

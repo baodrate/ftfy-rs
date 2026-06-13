@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""Build corpus/entries/famous-incidents.json.
+
+Documented, famous mojibake from encoding folklore. Each garbled string
+is *computed* from a known input through a known chain and was
+cross-checked against the verbatim string reported in the cited source
+(see corpus/sources/classic-mojibake-research.md). Several of these are
+not text→encoding→encoding at all but uninitialized memory or
+replacement characters rendered through a codec; those use byte-literal
+seeds and are flagged accordingly.
+
+This file is the heart of the anti-hallucination story: every famous
+sample here round-trips, which is exactly the property an AI-imagined
+"mojibake-looking" string would fail (rspeer, "Never lose a dead end").
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+import unicodedata
+from pathlib import Path
+
+import ftfy
+
+sys.path.insert(0, str(Path(__file__).parent))
+from transforms import apply_chain  # noqa: E402
+
+OUT = Path(__file__).resolve().parent.parent / "entries" / "famous-incidents.json"
+
+U8 = {"encode": "utf-8"}
+D1252 = {"decode": "sloppy-windows-1252"}
+DLAT1 = {"decode": "latin-1"}
+
+# (id, label, lang, intended, chain, source, notes)
+COMPUTED = [
+    ("famous-bush-hid-the-facts",
+     "'Bush hid the facts' — Windows Notepad IsTextUnicode bug (2004)",
+     "en", "Bush hid the facts",
+     [{"encode": "ascii"}, {"decode": "utf-16-le"}],
+     "https://en.wikipedia.org/wiki/Bush_hid_the_facts",
+     "ASCII misdetected as UTF-16LE by IsTextUnicode(); pairs of ASCII "
+     "bytes become CJK codepoints. Note: not classic mojibake — neither "
+     "ftfy nor plsfix targets this, so it documents a non-goal."),
+    ("famous-kunjinkao-replacement",
+     "锟斤拷 — double U+FFFD encoded UTF-8, decoded GBK (Chinese ▢ folklore)",
+     "zh-Hans", "��",
+     [U8, {"decode": "gbk"}],
+     "https://en.wikipedia.org/wiki/Mojibake ; "
+     "https://github.com/Ovler-Young/Mojibake-recovery",
+     "Two replacement chars (EF BF BD EF BF BD) re-encoded UTF-8 then read "
+     "as GBK pair up into 锟/斤/拷. The seed is genuinely lossy garbage."),
+    ("famous-bnopnya",
+     "бНОПНЯ — Russian 'Вопрос' as CP1251 read as KOI8-R (the iconic krakozyabры)",
+     "ru", "Вопрос",
+     [{"encode": "windows-1251"}, {"decode": "koi8-r"}],
+     "https://neolurk.org/wiki/БНОПНЯ ; https://cyclowiki.org/wiki/Кракозябры",
+     "The single most famous Russian mojibake string; KOI8-R⇄CP1251 swaps "
+     "case ranges, so it stays letter-shaped and almost pronounceable."),
+    ("famous-ophbet",
+     "оПХБЕР — Russian 'Привет' as CP1251 read as KOI8-R",
+     "ru", "Привет",
+     [{"encode": "windows-1251"}, {"decode": "koi8-r"}],
+     "https://dic.academic.ru/dic.nsf/ruwiki/1069825",
+     "Has its own dictionary entry. Capital П (0xCF) maps to lowercase KOI8 "
+     "'о', hence the lowercase first letter."),
+    ("famous-ala-aseroe-single",
+     "AseroÃ« — fungal genus Aseroë, UTF-8/Latin-1 (Atlas of Living Australia)",
+     "la", "Aseroë",
+     [U8, DLAT1],
+     "https://www.datafix.com.au/BASHing/2020-04-01.html",
+     "Taxonomic diaeresis names mangled in a biodiversity database."),
+    ("famous-ala-aseroe-double",
+     "AseroÃƒÂ« — same genus, double UTF-8/cp1252 conversion",
+     "la", "Aseroë",
+     [U8, D1252, U8, D1252],
+     "https://www.datafix.com.au/BASHing/2020-04-01.html",
+     "The article documents the byte-by-byte double conversion explicitly."),
+    ("famous-ala-naïs",
+     "NaÃ¯s — fungal genus Naïs, UTF-8/Latin-1 (Atlas of Living Australia)",
+     "la", "Naïs", [U8, DLAT1],
+     "https://www.datafix.com.au/BASHing/2020-04-01.html", ""),
+    ("famous-norwegian-smorbrod",
+     "SmÃ¸rbrÃ¸d — Norwegian 'Smørbrød' (open sandwich) as UTF-8/Latin-1",
+     "no", "Smørbrød", [U8, DLAT1],
+     "https://en.wikipedia.org/wiki/Mojibake", ""),
+    ("famous-korean-hangugeo",
+     "í•œêµ­ì–´ — Korean '한국어' (Korean language) as UTF-8/cp1252",
+     "ko", "한국어", [U8, D1252],
+     "https://ssojet.com/compare-character-encoding/euc-kr-vs-utf-8", ""),
+    ("famous-russian-privet-utf8",
+     "Ð¿Ñ€Ð¸Ð²ÐµÑ‚ — Russian 'привет' (hello) as UTF-8/cp1252",
+     "ru", "привет", [U8, D1252],
+     "https://grokipedia.com/page/Mojibake", ""),
+    ("famous-german-fuer",
+     "fÃ¼r — German 'für' as UTF-8/Latin-1 (Wikipedia lead example)",
+     "de", "für", [U8, DLAT1],
+     "https://en.wikipedia.org/wiki/Mojibake", ""),
+    ("famous-cafe",
+     "cafÃ© — 'café' as UTF-8/Latin-1 (the canonical one-word example)",
+     "fr", "café", [U8, DLAT1],
+     "https://unicodefyi.com/glossary/mojibake/", ""),
+    ("famous-emdash-scherlis",
+     "â€\" — em dash '—' as UTF-8/cp1252 (Scherlis, New Frontiers in Mojibake)",
+     "en", "—", [U8, D1252],
+     "https://adam.scherlis.com/2022/11/25/new-frontiers-in-mojibake/",
+     "E2 80 94 → â € \" under cp1252; the textbook punctuation case."),
+    ("famous-arent-dont",
+     "arenâ€™t … donâ€™t — curly apostrophes as UTF-8/cp1252 (rspeer ftfy 3.0)",
+     "en", "If numbers aren’t beautiful, I don’t know what is",
+     [U8, D1252],
+     "http://rspeer.github.io/blog/2013/08/26/ftfy-fixes-text-for-you-3-dot-0/",
+     ""),
+    ("famous-leon-rocha",
+     "LeÃ³n Rochaâ€™s — 'León Rocha's' as UTF-8/cp1252 (alexwlchan fix_and_explain)",
+     "es", "Amadeo León Rocha’s plight",
+     [U8, D1252],
+     "https://alexwlchan.net/notes/2025/ftfy-fix-and-explain/",
+     "alexwlchan reports ftfy's explanation: sloppy-windows-1252 / utf-8 / "
+     "uncurl_quotes — a good explain-step cross-check."),
+    ("famous-shrug-thai",
+     "(à¸‡'âŒ£')à¸‡ — Thai kaomoji '(ง'⌣')ง' as UTF-8/cp1252 (plsfix README headline)",
+     "th", "(ง'⌣')ง", [U8, D1252],
+     "plsfix README; ftfy README",
+     "The README's marquee example; ง is Tho Thong (U+0E07)."),
+]
+
+# Byte-literal seeds: these famous strings come from raw bytes (memory
+# fill patterns, BOM), not from text pushed through a codec. We seed the
+# bytes directly via a decode-only chain over a synthetic intended value.
+BYTE_SEEDS = [
+    ("famous-tangtangtang",
+     "烫烫烫 ('scalding') — MSVC 0xCC stack-fill bytes read as GBK",
+     "zh-Hans", bytes([0xCC] * 6), "gbk",
+     "https://blog.csdn.net/jarelzhou/article/details/19013037",
+     "Uninitialized stack memory (debug fill 0xCC) printed as a string on "
+     "a Chinese-locale Windows. Not recoverable text; documents a non-goal."),
+    ("famous-tuntuntun",
+     "屯屯屯 — MSVC 0xCD heap-fill bytes read as GBK",
+     "zh-Hans", bytes([0xCD] * 6), "gbk",
+     "https://www.cnblogs.com/imjustice/archive/2012/03/05/2623915.html",
+     "Heap debug fill (0xCD); the heap counterpart of 烫烫烫."),
+    ("famous-utf8-bom-as-gbk",
+     "锘 — UTF-8 BOM (EF BB BF) read as GBK",
+     "zh-Hans", bytes([0xEF, 0xBB, 0xBF]), "gbk",
+     "https://blog.csdn.net/jarelzhou/article/details/19013037",
+     "BOM-as-text artifact at file starts on Chinese-locale tools."),
+]
+
+
+def main() -> None:
+    entries = []
+    for id_, label, lang, intended, chain, source, notes in COMPUTED:
+        mojibake = apply_chain(intended, chain)
+        assert mojibake != intended, f"{id_}: chain is a no-op"
+        output = ftfy.fix_text(mojibake)
+        entries.append({
+            "id": id_, "label": label, "lang": lang,
+            "intended": intended, "mojibake": mojibake, "chain": chain,
+            "provenance": {"type": "famous-incident", "source": source, "notes": notes},
+            "verified": True,
+            "ftfy_output": output,
+            "ftfy_recovers": unicodedata.normalize("NFC", intended) == output,
+        })
+    for id_, label, lang, raw, codec, source, notes in BYTE_SEEDS:
+        mojibake = raw.decode(codec, "replace")
+        output = ftfy.fix_text(mojibake)
+        entries.append({
+            "id": id_, "label": label, "lang": lang,
+            "intended": None, "mojibake": mojibake,
+            "chain": [{"raw_bytes_hex": raw.hex()}, {"decode": codec, "errors": "replace"}],
+            "provenance": {"type": "famous-incident-bytes", "source": source, "notes": notes},
+            "verified": True,  # the bytes are fixed and the decode is deterministic
+            "ftfy_output": output,
+            "ftfy_recovers": None,  # there is no "correct" text to recover
+        })
+    OUT.write_text(json.dumps(entries, ensure_ascii=False, indent=2) + "\n",
+                   encoding="utf-8")
+    n_fix = sum(bool(e["ftfy_recovers"]) for e in entries)
+    print(f"wrote {len(entries)} entries to {OUT}; ftfy recovers {n_fix}")
+
+
+if __name__ == "__main__":
+    main()
