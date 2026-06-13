@@ -72,6 +72,25 @@ SEEDS = [
     ("emoji", "(ง'⌣')ง fight! ¯\\_(ツ)_/¯ ☺💕", []),
     ("mixed", "Naïve café-goers paid €5 — “très chic” — for ½ a crème brûlée…", ["windows-1252", "macroman"]),
     ("symbols", "∮ E·da = Q, n → ∞, ∑ f(i) = ∏ g(i); ⊥ ≠ ∥ — α β γ δ", []),
+    # --- Additional scripts / languages ---
+    ("hy", "Բարև, աշխարհ։ Արագ շագանակագույն աղվեսը ցատկում է ծույլ շան վրայով։", []),
+    ("ka2", "სწრაფი ყავისფერი მელა ხტება ზარმაცი ძაღლის თავზე. გამარჯობა, მსოფლიო!", []),
+    ("bn", "আমি কাচ খেতে পারি, তাতে আমার কোনো ক্ষতি হয় না। দ্রুত বাদামী শিয়াল।", []),
+    ("ta", "நான் கண்ணாடி சாப்பிடுவேன், அதனால் எனக்கு வலி ஏற்படாது. வணக்கம் உலகம்.", []),
+    ("te", "నేను గాజు తినగలను, అది నాకు హాని కలిగించదు. నమస్కారం ప్రపంచం.", []),
+    ("ml", "എനിക്ക് ഗ്ലാസ് കഴിക്കാം, അതെനിക്ക് വേദനയുണ്ടാക്കില്ല. നമസ്കാരം ലോകം.", []),
+    ("am", "ሰላም ለዓለም። ፈጣኑ ቡናማ ቀበሮ በሰነፉ ውሻ ላይ ይዘላል።", []),
+    ("my", "မင်္ဂလာပါ ကမ္ဘာလောက။ မြန်သော အညိုရောင် မြေခွေး။", []),
+    ("km", "សួស្ដី​ពិភពលោក។ កញ្ជ្រោង​ត្នោត​រហ័ស​លោត​លើ​ឆ្កែ​ខ្ជិល។", []),
+    ("si", "ආයුබෝවන් ලෝකය. වේගවත් දුඹුරු හිවලා කම්මැලි බල්ලා උඩින් පනියි.", []),
+    ("nl", "Pa's wijze lynx bezag vroom het fikse aquaduct. Zo'n café met een croissant.", ["windows-1252"]),
+    ("ca", "Jove xef, porti whisky amb quinze glaçons d'hidrogen, coi! L'çà i enllà.", ["windows-1252"]),
+    ("eu", "Iñaki Gorrotxategiren familia jatorrizko Azkoitiakoa da. Kaixo mundua!", ["windows-1252"]),
+    ("ga", "Chuaigh bé mhórshách le dlúthspád fíorfhinn trí hata mo dhea-phorcáin bhig.", ["windows-1252"]),
+    ("cy", "Parciais fy jac codi baw hud llawn dŵr ger tŷ Mabon. Helô, fyd!", ["windows-1252"]),
+    ("mt", "Il-bniedem għaref jagħżel it-triq it-tajba. Ċaqlaq iż-żraben ħomor.", ["windows-1252"]),
+    ("eo", "Eĥoŝanĝo ĉiuĵaŭde. La rapida bruna vulpo saltas super la maldiligenta hundo.", ["windows-1252"]),
+    ("mixed2", "Café ☕ + naïve 🤔 + €100 → «façade» — 日本語 mixed with ñoño", ["windows-1252"]),
 ]
 
 # Universal chains: applicable to any seed (UTF-8 always encodes).
@@ -135,6 +154,18 @@ def legacy_chains(codec: str) -> list[tuple[str, str, list[dict]]]:
         other = "koi8-r" if codec == "windows-1251" else "windows-1251"
         chains.append(
             (f"{codec}-as-{other}", f"{codec} bytes read as {other} (classic krakozyabry)",
+             [{"encode": codec}, {"decode": other, "errors": "replace"}]))
+    # CJK legacy codecs commonly get cross-decoded as each other or as cp437.
+    cjk_cross = {
+        "shift_jis": ["euc-jp", "cp437", "gbk"],
+        "euc-jp": ["shift_jis"],
+        "gbk": ["big5", "shift_jis"],
+        "big5": ["gbk", "shift_jis"],
+        "euc-kr": ["shift_jis", "gbk"],
+    }
+    for other in cjk_cross.get(codec, []):
+        chains.append(
+            (f"{codec}-as-{other}", f"{codec} bytes read as {other} (CJK cross-decode)",
              [{"encode": codec}, {"decode": other, "errors": "replace"}]))
     return chains
 
