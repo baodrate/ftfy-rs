@@ -31,6 +31,12 @@ reproduces ftfy's algorithm rather than merely its happy path.
 | robustness | neither panics on any corpus or fuzz input; plsfix rejects lone surrogates at the binding (documented) |
 | performance | plsfix ~9–13× faster on mojibake, ~2.5–5× on clean text |
 
+Fuzzing tally (corrected invariants, corpus-seeded): the five targets ran
+clean — over **2 million executions** with zero crashes in the longer
+campaign (`structured_config` 1.19M, `fix_text_no_panic` 318k,
+`idempotent` 287k, `roundtrip_mojibake` 266k), on top of the initial
+60s-per-target smoke pass.
+
 ## Findings in detail
 
 ### 1. Explanation shape (documented, ~594 cases)
