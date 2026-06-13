@@ -111,3 +111,11 @@ plsfix aims to match ftfy behavior, but a few things differ:
   - OSC (`\x1b ] …`)
   - DSC (`\x1b P …`)
   - APC (`\x1b _ …`)
+
+## Testing against ftfy
+
+Three pieces verify plsfix tracks reference ftfy:
+
+- [`corpus/`](corpus/) — a corpus of mojibake samples (famous encoding-folklore incidents, ftfy issue reports, documentation examples, and 40+ languages crossed with corruption chains). Every sample is *mechanically verified*: an entry only counts if replaying its encode/decode chain on the intended text reproduces the garbled bytes exactly. This round-trip rule is a built-in filter against AI-hallucinated "mojibake-looking" strings.
+- [`harness/`](harness/) — a differential harness that runs plsfix and `python-ftfy` over the corpus and compares decoded output, explanation steps, idempotence/convergence, robustness, and performance, bucketing genuine regressions apart from documented differences.
+- [`fuzz/`](fuzz/) — `cargo-fuzz` targets (panic-freedom, bounded convergence, explanation self-consistency, real-mojibake recovery, full-config-space) seeded from the corpus.

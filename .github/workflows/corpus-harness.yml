@@ -1,0 +1,105 @@
+name: Corpus & differential harness
+
+on:
+  pull_request:
+    paths:
+      - 'core/**'
+      - 'python/**'
+      - 'corpus/**'
+      - 'harness/**'
+      - 'fuzz/**'
+      - '.github/workflows/corpus-harness.yml'
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  corpus-verify:
+    # Round-trip-verify the mojibake corpus: every entry with a chain must
+    # reproduce its garbled bytes from the intended text. This is the
+    # anti-hallucination gate — it fails if any sample lacks a working chain.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install reference ftfy
+        run: pip install -r corpus/tools/requirements.txt
+      - name: Verify corpus round-trips
+        run: python corpus/tools/verify_corpus.py
+
+  differential:
+    # Build plsfix and compare it against reference ftfy across the corpus
+    # and the programmatic edge cases. Fails on regressions (ftfy recovers
+    # the intended text but plsfix doesn't, or either library panics).
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps + build plsfix
+        run: |
+          pip install -r corpus/tools/requirements.txt maturin
+          (cd python && maturin develop --release)
+      - name: Differential comparison
+        run: python harness/compare.py
+      - name: Performance comparison (informational)
+        continue-on-error: true
+        run: python harness/benchmark.py
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-reports
+          path: |
+            harness/report.json
+            harness/benchmark.json
+
+  fuzz-smoke:
+    # Short smoke fuzz of each target so regressions that introduce panics
+    # or break convergence are caught in CI. Not a full fuzzing campaign —
+    # just a quick build + 60s-per-target run seeded from the corpus.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - name: Seed fuzz corpora
+        run: python corpus/tools/seed_fuzz.py
+      - name: Smoke-fuzz each target
+        run: |
+          for t in fix_text_no_panic fix_and_explain_no_panic idempotent \
+                   roundtrip_mojibake structured_config; do
+            echo "::group::$t"
+            cargo +nightly fuzz run "$t" -- -max_total_time=60 -max_len=8192
+            echo "::endgroup::"
+          done
+      - name: Upload any crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: fuzz/artifacts/

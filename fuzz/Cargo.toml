@@ -1,0 +1,53 @@
+[package]
+name = "plsfix-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Standalone crate: not part of the root workspace.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+
+[dependencies.plsfix]
+path = "../core"
+
+[[bin]]
+name = "fix_text_no_panic"
+path = "fuzz_targets/fix_text_no_panic.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fix_and_explain_no_panic"
+path = "fuzz_targets/fix_and_explain_no_panic.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "structured_config"
+path = "fuzz_targets/structured_config.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "idempotent"
+path = "fuzz_targets/idempotent.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "roundtrip_mojibake"
+path = "fuzz_targets/roundtrip_mojibake.rs"
+test = false
+doc = false
+bench = false
