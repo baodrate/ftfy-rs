@@ -374,6 +374,198 @@
     "ftfy_recovers": true
   },
   {
+    "id": "famous-theyre-curl",
+    "label": "theyâ€™re — 'they’re' (curly apostrophe) as UTF-8/cp1252",
+    "lang": "en",
+    "intended": "they’re",
+    "mojibake": "theyâ€™re",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://www.justinweiss.com/articles/how-to-get-from-theyre-to-theyre/",
+      "notes": "The canonical apostrophe-mojibake blog example."
+    },
+    "verified": true,
+    "ftfy_output": "they're",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "famous-ala-elsinoe",
+    "label": "ElsinoÃ« — fungal genus Elsinoë as UTF-8/Latin-1 (Atlas of Living Australia)",
+    "lang": "la",
+    "intended": "Elsinoë",
+    "mojibake": "ElsinoÃ«",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "latin-1"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://www.datafix.com.au/BASHing/2020-04-01.html",
+      "notes": ""
+    },
+    "verified": true,
+    "ftfy_output": "Elsinoë",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-ala-helicoon",
+    "label": "HelicoÃ¶n — fungal genus Helicoön as UTF-8/Latin-1 (Atlas of Living Australia)",
+    "lang": "la",
+    "intended": "Helicoön",
+    "mojibake": "HelicoÃ¶n",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "latin-1"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://www.datafix.com.au/BASHing/2020-04-01.html",
+      "notes": ""
+    },
+    "verified": true,
+    "ftfy_output": "Helicoön",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-ala-parepichloe",
+    "label": "ParepichloÃ« — fungal genus Parepichloë as UTF-8/Latin-1",
+    "lang": "la",
+    "intended": "Parepichloë",
+    "mojibake": "ParepichloÃ«",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "latin-1"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://www.datafix.com.au/BASHing/2020-04-01.html",
+      "notes": ""
+    },
+    "verified": true,
+    "ftfy_output": "Parepichloë",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-ala-zignoella",
+    "label": "ZignoÃ«lla — fungal genus Zignoëlla as UTF-8/Latin-1",
+    "lang": "la",
+    "intended": "Zignoëlla",
+    "mojibake": "ZignoÃ«lla",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "latin-1"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://www.datafix.com.au/BASHing/2020-04-01.html",
+      "notes": ""
+    },
+    "verified": true,
+    "ftfy_output": "Zignoëlla",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-muller-double",
+    "label": "MÃƒÂ¼ller — surname 'Müller' double-encoded (UTF-8/cp1252 twice)",
+    "lang": "de",
+    "intended": "Müller",
+    "mojibake": "MÃƒÂ¼ller",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      },
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1252"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://blogs.perl.org/users/chansen/2010/10/coping-with-double-encoded-utf-8.html",
+      "notes": "The textbook double-encoded-UTF-8 illustration."
+    },
+    "verified": true,
+    "ftfy_output": "Müller",
+    "ftfy_recovers": true
+  },
+  {
+    "id": "famous-jp-fieldguide-sjis",
+    "label": "繧/縺/繝 texture — Japanese UTF-8 read as Shift-JIS (the web's most common mojibake)",
+    "lang": "ja",
+    "intended": "日本語のテキスト",
+    "mojibake": "譌･譛ｬ隱槭�ｮ繝�繧ｭ繧ｹ繝�",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "shift_jis",
+        "errors": "replace"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://www.dampfkraft.com/mojibake-field-guide.html",
+      "notes": "Paul McCann's field guide: UTF-8-as-Shift-JIS yields recurring 繧縺繝 kanji."
+    },
+    "verified": true,
+    "ftfy_output": "譌・譛ャ隱槭�ョ繝�繧ュ繧ケ繝�",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "famous-jp-fieldguide-eucjp",
+    "label": "Half-width katakana texture — Japanese EUC-JP read as Shift-JIS",
+    "lang": "ja",
+    "intended": "日本語のテキスト",
+    "mojibake": "ﾆ�ﾋﾜｸ�､ﾎ･ﾆ･ｭ･ｹ･ﾈ",
+    "chain": [
+      {
+        "encode": "euc-jp"
+      },
+      {
+        "decode": "shift_jis",
+        "errors": "replace"
+      }
+    ],
+    "provenance": {
+      "type": "famous-incident",
+      "source": "https://www.dampfkraft.com/mojibake-field-guide.html",
+      "notes": "EUC-JP-as-Shift-JIS produces lots of half-width katakana."
+    },
+    "verified": true,
+    "ftfy_output": "ニ�ヒワク�、ホ・ニ・ュ・ケ・ネ",
+    "ftfy_recovers": false
+  },
+  {
     "id": "famous-tangtangtang",
     "label": "烫烫烫 ('scalding') — MSVC 0xCC stack-fill bytes read as GBK",
     "lang": "zh-Hans",
