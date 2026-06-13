@@ -160,7 +160,7 @@
     "provenance": {
       "type": "famous-incident",
       "source": "https://www.datafix.com.au/BASHing/2020-04-01.html",
-      "notes": ""
+      "notes": "ï = UTF-8 C3 AF; read as Latin-1 it splits into Ã + ¯. A taxonomic name with a diaeresis, mangled in a biodiversity database export."
     },
     "verified": true,
     "ftfy_output": "Naïs",
@@ -183,7 +183,7 @@
     "provenance": {
       "type": "famous-incident",
       "source": "https://en.wikipedia.org/wiki/Mojibake",
-      "notes": ""
+      "notes": "ø = UTF-8 C3 B8 → Ã¸ under Latin-1; the canonical Scandinavian example (the Wikipedia Mojibake article uses Norwegian/Danish ø for this)."
     },
     "verified": true,
     "ftfy_output": "Smørbrød",
@@ -206,7 +206,7 @@
     "provenance": {
       "type": "famous-incident",
       "source": "https://ssojet.com/compare-character-encoding/euc-kr-vs-utf-8",
-      "notes": ""
+      "notes": "The literal word 'Korean language'; each Hangul syllable is 3 UTF-8 bytes that split into three cp1252 characters — the classic Korean UTF-8-as-Western pattern."
     },
     "verified": true,
     "ftfy_output": "한국어",
@@ -229,7 +229,7 @@
     "provenance": {
       "type": "famous-incident",
       "source": "https://grokipedia.com/page/Mojibake",
-      "notes": ""
+      "notes": "The word 'hello'; the most-cited example of UTF-8 Cyrillic shown through a Western codepage (each letter → Ð/Ñ + a second char)."
     },
     "verified": true,
     "ftfy_output": "привет",
@@ -252,7 +252,7 @@
     "provenance": {
       "type": "famous-incident",
       "source": "https://en.wikipedia.org/wiki/Mojibake",
-      "notes": ""
+      "notes": "ü = UTF-8 C3 BC → fÃ¼r; the canonical German example used in the Wikipedia Mojibake article's lead."
     },
     "verified": true,
     "ftfy_output": "für",
@@ -275,7 +275,7 @@
     "provenance": {
       "type": "famous-incident",
       "source": "https://unicodefyi.com/glossary/mojibake/",
-      "notes": ""
+      "notes": "é = UTF-8 C3 A9 → cafÃ©; the single most common one-word demonstration of UTF-8-as-Latin-1 mojibake."
     },
     "verified": true,
     "ftfy_output": "café",
@@ -321,7 +321,7 @@
     "provenance": {
       "type": "famous-incident",
       "source": "http://rspeer.github.io/blog/2013/08/26/ftfy-fixes-text-for-you-3-dot-0/",
-      "notes": ""
+      "notes": "Curly apostrophes (U+2019 = E2 80 99) shown as â€™ under cp1252; from rspeer's own ftfy 3.0 announcement."
     },
     "verified": true,
     "ftfy_output": "If numbers aren't beautiful, I don't know what is",
@@ -413,7 +413,7 @@
     "provenance": {
       "type": "famous-incident",
       "source": "https://www.datafix.com.au/BASHing/2020-04-01.html",
-      "notes": ""
+      "notes": "One of several diaeresis fungal genera the datafix article documents as mangled in the Atlas of Living Australia (ë → Ã«)."
     },
     "verified": true,
     "ftfy_output": "Elsinoë",
@@ -436,7 +436,7 @@
     "provenance": {
       "type": "famous-incident",
       "source": "https://www.datafix.com.au/BASHing/2020-04-01.html",
-      "notes": ""
+      "notes": "ö = UTF-8 C3 B6 → Ã¶; same Atlas of Living Australia export bug."
     },
     "verified": true,
     "ftfy_output": "Helicoön",
@@ -459,7 +459,7 @@
     "provenance": {
       "type": "famous-incident",
       "source": "https://www.datafix.com.au/BASHing/2020-04-01.html",
-      "notes": ""
+      "notes": "Another diaeresis genus from the same Atlas of Living Australia case."
     },
     "verified": true,
     "ftfy_output": "Parepichloë",
@@ -482,7 +482,7 @@
     "provenance": {
       "type": "famous-incident",
       "source": "https://www.datafix.com.au/BASHing/2020-04-01.html",
-      "notes": ""
+      "notes": "Fourth diaeresis genus from the same Atlas of Living Australia case."
     },
     "verified": true,
     "ftfy_output": "Zignoëlla",
@@ -605,7 +605,7 @@
     "provenance": {
       "type": "famous-incident",
       "source": "https://ftfy.readthedocs.io/en/latest/explain.html",
-      "notes": ""
+      "notes": "ftfy documentation example; Ô = UTF-8 C3 94 → Ã + ” (0x94 is a curly quote in cp1252), so the word is HÃ”TEL."
     },
     "verified": true,
     "ftfy_output": "HÔTEL",
@@ -628,7 +628,7 @@
     "provenance": {
       "type": "famous-incident",
       "source": "http://blog.conceptnet.io/ftfy/",
-      "notes": ""
+      "notes": "Short French word from ftfy's ConceptNet-blog examples; é → Ã©, twice."
     },
     "verified": true,
     "ftfy_output": "été",
