@@ -100,7 +100,6 @@ plsfix aims to match ftfy behavior, but a few things differ:
 - **Bounded loops.** Fixed-point loops cap at 16 passes (ftfy loops unbounded); real text converges well before this.
 - **Non-zero `max_decode_length`.** The cap is a `NonZeroUsize` rather than ftfy's `int`, so a zero or negative value is rejected when constructing `TextFixerConfig` (raising `ValueError`/`OverflowError`) — where ftfy accepts it and in fact hangs on `0`.
 - **Byte-based `max_decode_length`.** The segment-length cap counts bytes rather than ftfy's codepoints; the split point is arbitrary either way.
-- **Baltic gap.** `windows-1257` is not yet a candidate codec, so some Baltic-language mojibake that ftfy fixes is left unchanged.
 - **HTML noncharacter refs.** Numeric character references in the Unicode noncharacter ranges (`&#xffff;`, U+FDD0..U+FDEF, …) decode to their codepoint, following WHATWG § 13.2.5.80; ftfy (via Python's `html.unescape`) deletes them.
 
 ### Limitations (shared with ftfy)

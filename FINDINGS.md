@@ -7,7 +7,7 @@ and [`fuzz/`](fuzz/) for the machinery.
 
 ## Headline
 
-**plsfix tracks ftfy faithfully.** Across 900+ corpus cases plus
+**plsfix tracks ftfy faithfully.** Across ~1,470 corpus cases plus
 programmatic edge cases and millions of fuzz executions, there is **no
 output regression** — no input where ftfy recovers the intended text and
 plsfix fails to. Every divergence found is one of:
@@ -25,7 +25,7 @@ reproduces ftfy's algorithm rather than merely its happy path.
 
 | Observable | Result |
 |---|---|
-| `fix_text` output | identical on 779/906 cases; the rest differ only in explanation, normalization, or documented edge cases — never a recovery regression |
+| `fix_text` output | identical on ~1,068 of 1,470 cases; the rest differ only in explanation, normalization, or documented edge cases — never a recovery regression |
 | `fix_and_explain` steps | named transforms agree on most cases; plsfix records the encode/decode plumbing differently (documented "explanation shape" difference) |
 | idempotence / convergence | both libraries converge in ≤2 passes; neither is single-pass idempotent (shared quirk) |
 | robustness | neither panics on any corpus or fuzz input; plsfix rejects lone surrogates at the binding (documented) |
@@ -82,16 +82,52 @@ single-segment (line-break-free) input.
 plsfix raises at the PyO3 boundary on lone surrogates (Rust `String` can't
 hold them); ftfy returns a replacement-character string. By design.
 
-## Anti-hallucination methodology
+## Anti-hallucination methodology (and what the source post actually says)
 
-The corpus is built so that AI-imagined "mojibake-looking" strings cannot
-slip in. Every sample carries an explicit encode/decode/mangle **chain**,
-and an entry is only marked `verified` when replaying that chain on the
-intended text reproduces the garbled bytes *exactly*. Famous strings
-gathered from documentation and folklore were re-derived from their
-intended text and compared byte-for-byte against the cited form before
-inclusion. This operationalizes the structural fact ftfy relies on —
-real mojibake is mechanically invertible — which is precisely the property
-a fabricated sample fails. Provenance notes (including which strings were
-seen verbatim vs reconstructed during research) live in
-[`corpus/sources/`](corpus/sources/).
+The corpus guards against AI-imagined mojibake with **two** independent
+checks, because — as rspeer's "Never Lose a Dead End" (2024-10-31) shows —
+one is not enough:
+
+1. **Mechanical validity.** Every sample carries an explicit
+   encode/decode/mangle **chain**, and is marked `verified` only when
+   replaying that chain on the intended text reproduces the garbled bytes
+   *exactly*. This rejects mis-transcribed or wholly-invented strings.
+
+2. **Provenance.** Mechanical validity is *not* sufficient. In the post,
+   rspeer hunts for a real Windows-1257 example and finds `Å iaip ÄÆdomu,
+   kaip ÄÆsivaizduoji.` on a Lithuanian page — then realizes the whole page
+   is LLM-generated, with the model emitting *fake mojibake* "because
+   that's what it believed Lithuanian looks like." That fake mojibake
+   **round-trips cleanly** (we verified it: UTF-8 → Windows-1257 →
+   NBSP-flatten reproduces it byte-for-byte), so a chain check alone cannot
+   catch it. Only a documented real-world encoding-error event can. Hence
+   every entry carries a citation or detailed justification, and the
+   LLM-imitated samples — including that exact sentence — are quarantined in
+   [`corpus/entries/ai-hallucinated.json`](corpus/entries/ai-hallucinated.json)
+   with `real_encoding_error: false`.
+
+Synthetic ("generated") entries are honestly labelled as such — rspeer's
+"artificial examples", good for exhaustively testing the mechanism — with
+each seed cited (pangram collections, the "I Can Eat Glass" sampler, the
+Iroha, ftfy fixtures) and each chain justified. Research provenance notes
+live in [`corpus/sources/`](corpus/sources/).
+
+## Coverage of ftfy-unsupported encodings
+
+ftfy and plsfix only reverse UTF-8 mojibake whose mis-decode used one of
+ten candidate encodings. The corpus deliberately includes ~760 cases from
+*outside* that set — UTF-8 misread as cp850/cp852/cp866/cp874/koi8-r/
+iso-8859-5/iso-8859-7/windows-1256/windows-1258, UTF-16 misreads, and
+CJK/legacy-to-legacy cross-decodes — each flagged
+`ftfy_repair_supported: false`. Both libraries correctly **leave these
+unchanged** (a no-op is the right answer), so they land in `MATCH` and
+confirm the no-false-positives guarantee. One mild divergence surfaced:
+on Tamil run through UTF-8-as-windows-1256, the two libraries' partial
+`decode_inconsistent_utf8` processing differs slightly — neither recovers
+the Tamil (both emit garbage), so it is bucketed `NEITHER_ORACLE`, not a
+regression.
+
+Separately, the "Baltic gap" the plsfix README used to list is **closed**:
+plsfix's candidate set now matches ftfy's (it includes `sloppy-windows-1257`),
+and clean Lithuanian/Latvian mojibake (`Sąrašai`, `Žalgiris`, `Rīga`) is
+recovered identically by both. The stale README note was removed.

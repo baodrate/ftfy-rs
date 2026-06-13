@@ -236,7 +236,7 @@
     "provenance": {
       "type": "documented",
       "source": "third-party/python-ftfy (docs/, ftfy/__init__.py docstrings, README)",
-      "notes": ""
+      "notes": "Docstring of ftfy.fix_and_explain (ftfy/__init__.py): mojibake = 'schÃ¶n'; ö = UTF-8 C3 B6 read as cp1252 → Ã¶."
     },
     "verified": true,
     "ftfy_output": "schön",
@@ -259,7 +259,7 @@
     "provenance": {
       "type": "documented",
       "source": "third-party/python-ftfy (docs/, ftfy/__init__.py docstrings, README)",
-      "notes": ""
+      "notes": "Docstring of ftfy.fix_encoding_and_explain: mojibake = 'sÃ³'; ó = UTF-8 C3 B3 read as cp1252 → Ã³."
     },
     "verified": true,
     "ftfy_output": "só",
@@ -285,7 +285,7 @@
     "provenance": {
       "type": "documented",
       "source": "third-party/python-ftfy (docs/, ftfy/__init__.py docstrings, README)",
-      "notes": ""
+      "notes": "Docstring of ftfy.fix_encoding_and_explain: 'voilÃ\\xa0 le travail' with the recovered NBSP flattened to a space."
     },
     "verified": true,
     "ftfy_output": "voilà le travail",
@@ -400,7 +400,7 @@
     "provenance": {
       "type": "documented",
       "source": "https://en.wikipedia.org/wiki/Mojibake (Swedish section)",
-      "notes": ""
+      "notes": "Swedish 'räksmörgås' (shrimp sandwich) is the article's Swedish test word; ä/ö/å each become Ã-prefixed pairs under Latin-1."
     },
     "verified": true,
     "ftfy_output": "Beställ en räksmörgås på smörgåsbordet",

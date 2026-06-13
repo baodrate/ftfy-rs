@@ -1,0 +1,130 @@
+[
+  {
+    "id": "ai-deadend-sentence-flat",
+    "label": "'Å iaip ÄÆdomu…' — the lead example from 'Never Lose a Dead End' (NBSP flattened)",
+    "lang": "lt",
+    "intended": "Šiaip įdomu, kaip įsivaizduoji.",
+    "mojibake": "Å iaip ÄÆdomu, kaip ÄÆsivaizduoji.",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1257"
+      },
+      {
+        "transform": "nbsp_to_space"
+      }
+    ],
+    "provenance": {
+      "type": "ai-hallucinated",
+      "source": "https://posts.arborelia.net/never-lose-a-dead-end/ (Robyn Speer, 2024-10-31)",
+      "origin": "found in the OSCAR web-crawl corpus on the now-parked domain ratu.lt; the source page was entirely LLM-generated 'AI slop'",
+      "real_encoding_error": false,
+      "notes": "The exact sentence rspeer found. UTF-8 decoded as Windows-1257; the first word's NBSP (Å<NBSP>iaip) was flattened to a space. ftfy 6.3.0 decoded it in the post, but ftfy 6.3.1 and plsfix both now DECLINE it (the badness gate rejects it) — they agree. Google-translates to the vague 'Anyway, it's interesting how you imagine.'"
+    },
+    "verified": true,
+    "ftfy_output": "Å iaip ÄÆdomu, kaip ÄÆsivaizduoji.",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "ai-deadend-sentence-nbsp",
+    "label": "'Å\\xa0iaip ÄÆdomu…' — same sentence with the NBSP intact",
+    "lang": "lt",
+    "intended": "Šiaip įdomu, kaip įsivaizduoji.",
+    "mojibake": "Å iaip ÄÆdomu, kaip ÄÆsivaizduoji.",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1257"
+      }
+    ],
+    "provenance": {
+      "type": "ai-hallucinated",
+      "source": "https://posts.arborelia.net/never-lose-a-dead-end/ (Robyn Speer, 2024-10-31)",
+      "origin": "found in the OSCAR web-crawl corpus on the now-parked domain ratu.lt; the source page was entirely LLM-generated 'AI slop'",
+      "real_encoding_error": false,
+      "notes": "The pre-flattening form (Å + U+00A0). Included to test the NBSP path the post highlights."
+    },
+    "verified": true,
+    "ftfy_output": "Å iaip ÄÆdomu, kaip ÄÆsivaizduoji.",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "ai-deadend-vaikysteje",
+    "label": "'vaikystÄ—je' — hallucinated word containing a real em dash",
+    "lang": "lt",
+    "intended": "vaikystėje",
+    "mojibake": "vaikystÄ—je",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1257"
+      }
+    ],
+    "provenance": {
+      "type": "ai-hallucinated",
+      "source": "https://posts.arborelia.net/never-lose-a-dead-end/ (Robyn Speer, 2024-10-31)",
+      "origin": "found in the OSCAR web-crawl corpus on the now-parked domain ratu.lt; the source page was entirely LLM-generated 'AI slop'",
+      "real_encoding_error": false,
+      "notes": "ė = UTF-8 C4 97; Windows-1257 byte 0x97 is U+2014 EM DASH, so the mojibake literally contains an em dash (the post notes it sits right after a correctly-used em dash). 'vaikystėje' ~ 'in childhood'."
+    },
+    "verified": true,
+    "ftfy_output": "vaikystÄ—je",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "ai-deadend-kokybes",
+    "label": "'kokybÄ—s' — hallucinated 'kokybės' (quality)",
+    "lang": "lt",
+    "intended": "kokybės",
+    "mojibake": "kokybÄ—s",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1257"
+      }
+    ],
+    "provenance": {
+      "type": "ai-hallucinated",
+      "source": "https://posts.arborelia.net/never-lose-a-dead-end/ (Robyn Speer, 2024-10-31)",
+      "origin": "found in the OSCAR web-crawl corpus on the now-parked domain ratu.lt; the source page was entirely LLM-generated 'AI slop'",
+      "real_encoding_error": false,
+      "notes": "Another ė→Ä— word the post cites as an LLM-believed Lithuanian word."
+    },
+    "verified": true,
+    "ftfy_output": "kokybÄ—s",
+    "ftfy_recovers": false
+  },
+  {
+    "id": "ai-deadend-idomu",
+    "label": "'ÄÆdomu' — hallucinated 'įdomu' (interesting)",
+    "lang": "lt",
+    "intended": "įdomu",
+    "mojibake": "ÄÆdomu",
+    "chain": [
+      {
+        "encode": "utf-8"
+      },
+      {
+        "decode": "sloppy-windows-1257"
+      }
+    ],
+    "provenance": {
+      "type": "ai-hallucinated",
+      "source": "https://posts.arborelia.net/never-lose-a-dead-end/ (Robyn Speer, 2024-10-31)",
+      "origin": "found in the OSCAR web-crawl corpus on the now-parked domain ratu.lt; the source page was entirely LLM-generated 'AI slop'",
+      "real_encoding_error": false,
+      "notes": "į = UTF-8 C4 AF; Windows-1257 0xAF is U+00C6 Æ, hence ÄÆ. The post lists 'ÄÆdomu' among words the LLM thought were real Lithuanian."
+    },
+    "verified": true,
+    "ftfy_output": "ÄÆdomu",
+    "ftfy_recovers": false
+  }
+]

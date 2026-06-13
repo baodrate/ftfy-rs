@@ -89,16 +89,22 @@ COMPUTED = [
 
     ("classic-schoen",
      "schön as UTF-8/Windows-1252 (fix_and_explain docstring)",
-     "de", "schön", [U8, D1252], FTFY_DOCS, ""),
+     "de", "schön", [U8, D1252], FTFY_DOCS,
+     "Docstring of ftfy.fix_and_explain (ftfy/__init__.py): mojibake = "
+     "'schÃ¶n'; ö = UTF-8 C3 B6 read as cp1252 → Ã¶."),
 
     ("classic-so",
      "só as UTF-8/Windows-1252 (fix_encoding_and_explain docstring)",
-     "pt", "só", [U8, D1252], FTFY_DOCS, ""),
+     "pt", "só", [U8, D1252], FTFY_DOCS,
+     "Docstring of ftfy.fix_encoding_and_explain: mojibake = 'sÃ³'; "
+     "ó = UTF-8 C3 B3 read as cp1252 → Ã³."),
 
     ("classic-voila-nbsp",
      "voilà le travail with flattened NBSP (fix_encoding_and_explain docstring)",
      "fr", "voilà le travail",
-     [U8, D1252, {"transform": "nbsp_to_space"}], FTFY_DOCS, ""),
+     [U8, D1252, {"transform": "nbsp_to_space"}], FTFY_DOCS,
+     "Docstring of ftfy.fix_encoding_and_explain: 'voilÃ\\xa0 le travail' "
+     "with the recovered NBSP flattened to a space."),
 
     # --- Wikipedia "Mojibake" article scenarios (strings computed) ---
     ("wiki-mojibake-jp-utf8-latin1",
@@ -128,7 +134,9 @@ COMPUTED = [
     ("wiki-mojibake-sv-smorgas",
      "Swedish räksmörgås as UTF-8/Latin-1",
      "sv", "Beställ en räksmörgås på smörgåsbordet",
-     [U8, DLAT1], "https://en.wikipedia.org/wiki/Mojibake (Swedish section)", ""),
+     [U8, DLAT1], "https://en.wikipedia.org/wiki/Mojibake (Swedish section)",
+     "Swedish 'räksmörgås' (shrimp sandwich) is the article's Swedish test "
+     "word; ä/ö/å each become Ã-prefixed pairs under Latin-1."),
 
     ("classic-mysql-latin1-chinese",
      "中文 as UTF-8 stored in a MySQL latin1 column",
