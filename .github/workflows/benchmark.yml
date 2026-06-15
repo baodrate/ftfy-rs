@@ -131,114 +131,16 @@ jobs:
 
       - name: Build summary table and comment body
         if: always() && hashFiles('bench-output.txt') != ''
-        run: |
-          set -euo pipefail
-
-          # `benchmarks` is a member of the root Cargo workspace, so gungraun
-          # writes its summaries under the workspace target at the repo root
-          # (not under benchmarks/target/).
-          mapfile -t summaries < <(find target/gungraun -type f -name summary.json 2>/dev/null | sort)
-
-          # jq program: per gungraun's v6 schema each summary is a
-          # BenchmarkSummary with Callgrind metrics at
-          #   profiles[0].summaries.parts[0].metrics_summary.Callgrind
-          # keyed by metric name (Ir, EstimatedCycles, …). diff_pct is a
-          # stringified percent (string-typed to preserve `inf`); we surface
-          # only the delta, raw counts go in the collapsible below.
-          #
-          # Cycles thresholds run ~6× looser than Ir: Callgrind cycle counts
-          # model cache behaviour and shift ±0.2% on code layout alone. Bold
-          # sits between the noise band and the fail soft-limit, and colours
-          # the cell via GitHub's KaTeX inline-math (the only way to colour a
-          # table cell). Thresholds come from the job env vars (single source
-          # of truth), which jq reads straight from env.
-          read -r -d '' JQ_PROG <<'JQ' || true
-          # Signed fixed two-decimal string (1 → "+1.00", -1.04 → "-1.04").
-          # jq's tostring strips trailing zeros, so work in cents (×100),
-          # pad to 3 digits, and insert the decimal point.
-          def fmt2($x):
-            (($x * 100) | round) as $c
-            | (if $c < 0 then "-" elif $c > 0 then "+" else "" end) as $sg
-            | (if $c < 0 then -$c else $c end | tostring) as $abs_s
-            | (if ($abs_s | length) < 3 then ("00" + $abs_s)[-3:] else $abs_s end) as $padded
-            | $sg + ($padded | sub("(?<f>\\d\\d)$"; ".\(.f)"));
-          def fmt_pct(s; negligible_pct; bold_pct):
-            if s == null then "—"
-            elif (s | tostring | test("inf"; "i")) then
-              "⚠️ **\(s | tostring)**"
-            else
-              (try (s | tonumber) catch null) as $n
-              | if $n == null then (s | tostring)
-                else
-                  (if $n < 0 then -$n else $n end) as $abs
-                  | (if $n > 0 then "⚠️" else "✅" end) as $emoji
-                  | (($n * 100 | round) / 100) as $rounded
-                  # When |Δ| rounds to 0.00 at two decimals, "+0%" reads
-                  # as "exactly nothing changed" which the diff_pct rarely
-                  # is — so show "≈0%" to make the rounding explicit.
-                  | (if $rounded == 0 then "≈0" else fmt2($rounded) end) as $num
-                  | if $abs < negligible_pct then "\($num)%"
-                    else
-                      (if $abs >= bold_pct then "**\($num)%**" else "\($num)%" end)
-                      | "\($emoji) \(.)"
-                    end
-                end
-            end;
-          (env.IR_NEGLIGIBLE_PCT     | tonumber) as $ir_neg  |
-          (env.IR_BOLD_PCT           | tonumber) as $ir_bold |
-          (env.CYCLES_NEGLIGIBLE_PCT | tonumber) as $cy_neg  |
-          (env.CYCLES_BOLD_PCT       | tonumber) as $cy_bold |
-          . as $b
-          | ($b.profiles[0].summaries.parts[0].metrics_summary.Callgrind // {}) as $ms
-          # `function_name id` reads cleanly in the table (e.g. `cold clean`)
-          # — the full `module_path` (file::group::fn) duplicates context the
-          # comment header already states.
-          | (
-              ($b.function_name // "")
-              + (if (($b.id // "") | tostring) != "" then " " + ($b.id|tostring) else "" end)
-            ) as $name
-          | "| `" + $name + "` | "
-            + fmt_pct((($ms.Ir // {}).diffs // {}).diff_pct; $ir_neg; $ir_bold) + " | "
-            + fmt_pct((($ms.EstimatedCycles // {}).diffs // {}).diff_pct; $cy_neg; $cy_bold) + " |"
-          JQ
-
-          PR_NUM='${{ github.event.pull_request.number }}'
-          BASE_REF='${{ github.event.pull_request.base.ref }}'
-          ARTEFACT_URL='${{ steps.artefacts.outputs.artifact-url }}'
-
-          {
-            if [ "${{ steps.baseline.outcome }}" = "success" ]; then
-              if [ -n "$PR_NUM" ]; then
-                echo "### gungraun benchmark — PR-${PR_NUM} vs \`${BASE_REF}\`"
-              else
-                echo "### gungraun benchmark — head vs \`${BASE_REF:-base}\`"
-              fi
-            else
-              echo "### gungraun benchmark (PR head only — no baseline)"
-            fi
-            echo
-            if [ "${#summaries[@]}" -gt 0 ]; then
-              echo "| Benchmark | ΔIr | ΔCycles |"
-              echo "|---|---:|---:|"
-              for f in "${summaries[@]}"; do
-                jq -r "$JQ_PROG" "$f"
-              done
-            else
-              echo "_No \`summary.json\` files found under \`target/gungraun/\`._"
-            fi
-            echo
-            if [ -n "$ARTEFACT_URL" ]; then
-              echo "Differential flamegraphs and raw summaries: [download artefact](${ARTEFACT_URL})"
-              echo
-            fi
-            echo "<details><summary>Full gungraun output</summary>"
-            echo
-            echo '```'
-            cat bench-output.txt
-            echo '```'
-            echo
-            echo "</details>"
-          } > bench-body.md
+        uses: ./.github/actions/benchmark-summary
+        with:
+          baseline: ${{ steps.baseline.outcome }}
+          pr-number: ${{ github.event.pull_request.number }}
+          base-ref: ${{ github.event.pull_request.base.ref }}
+          artifact-url: ${{ steps.artefacts.outputs.artifact-url }}
+          ir-negligible-pct: ${{ env.IR_NEGLIGIBLE_PCT }}
+          ir-bold-pct: ${{ env.IR_BOLD_PCT }}
+          cycles-negligible-pct: ${{ env.CYCLES_NEGLIGIBLE_PCT }}
+          cycles-bold-pct: ${{ env.CYCLES_BOLD_PCT }}
 
       - name: Publish results to job summary
         if: always() && hashFiles('bench-body.md') != ''
