@@ -1,0 +1,56 @@
+name: Update PR report comment section
+description: >
+  Create or update one marker-delimited section of the single per-PR
+  report comment, leaving other sections intact so independent workflows
+  can share one comment. Concurrent updates race on read-modify-write;
+  the loser's section reverts until its workflow next runs (accepted).
+inputs:
+  section:
+    description: Section id, unique per writer (e.g. "ci", "benchmark").
+    required: true
+  path:
+    description: File containing the section's markdown body.
+    required: true
+  token:
+    description: GitHub token used to read and write PR comments.
+    default: ${{ github.token }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/github-script@v8
+      env:
+        SECTION: ${{ inputs.section }}
+        BODY_PATH: ${{ inputs.path }}
+      with:
+        github-token: ${{ inputs.token }}
+        script: |
+          const fs = require('fs');
+          const marker = '<!-- ci-report -->';
+          const section = process.env.SECTION;
+          const open = `<!-- section:${section} -->`;
+          const close = `<!-- /section:${section} -->`;
+          const body = fs.readFileSync(process.env.BODY_PATH, 'utf8').trim();
+          const part = `${open}\n${body}\n${close}`;
+
+          const { owner, repo } = context.repo;
+          const issue_number = context.payload.pull_request.number;
+          const comments = await github.paginate(github.rest.issues.listComments, {
+            owner, repo, issue_number, per_page: 100,
+          });
+          const mine = comments.find(c => c.body && c.body.includes(marker));
+
+          if (!mine) {
+            await github.rest.issues.createComment({
+              owner, repo, issue_number, body: `${marker}\n${part}\n`,
+            });
+            return;
+          }
+
+          // Section ids are [a-z-] only, so they're regex-safe as-is.
+          const re = new RegExp(`${open}[\\s\\S]*?${close}`);
+          const updated = re.test(mine.body)
+            ? mine.body.replace(re, part)
+            : `${mine.body.trim()}\n\n${part}\n`;
+          await github.rest.issues.updateComment({
+            owner, repo, comment_id: mine.id, body: updated,
+          });

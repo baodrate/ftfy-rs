@@ -1,0 +1,54 @@
+name: Coverage summary
+description: Render lcov tracefiles as a markdown coverage table with per-file deltas against the PR base.
+
+inputs:
+  lcov:
+    description: Head lcov tracefile.
+    default: lcov.info
+  base-lcov:
+    description: Base lcov tracefile; absent means no baseline.
+    default: base-lcov.info
+  base-sha:
+    description: PR base SHA for the changed-files diff; empty omits it.
+    default: ''
+  head-sha:
+    description: PR head SHA.
+    default: ${{ github.sha }}
+  pr-number:
+    default: ''
+  base-ref:
+    default: ''
+  artifact-url:
+    default: ''
+  output:
+    description: Markdown output path.
+    default: coverage-body.md
+
+outputs:
+  total-coverage:
+    description: Overall line-coverage percentage, or empty when there are no lines.
+    value: ${{ steps.summarize.outputs.total-coverage }}
+
+runs:
+  using: composite
+  steps:
+    - id: summarize
+      shell: bash
+      env:
+        LCOV: ${{ inputs.lcov }}
+        BASE_LCOV: ${{ inputs.base-lcov }}
+        BASE_SHA: ${{ inputs.base-sha }}
+        HEAD_SHA: ${{ inputs.head-sha }}
+        PR_NUM: ${{ inputs.pr-number }}
+        BASE_REF: ${{ inputs.base-ref }}
+        ARTIFACT_URL: ${{ inputs.artifact-url }}
+        OUTPUT: ${{ inputs.output }}
+        CHANGED_FILES: changed-files.txt
+      run: |
+        set -euo pipefail
+        if [ -n "$BASE_SHA" ]; then
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" > changed-files.txt
+        else
+          : > changed-files.txt
+        fi
+        python3 "$GITHUB_ACTION_PATH/summarize.py"

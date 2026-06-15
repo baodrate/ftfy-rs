@@ -4,6 +4,34 @@ on:
   pull_request:
   push:
     branches: [main, master]
+  workflow_dispatch:
+    # Benchmark thresholds — all values are |Δ%| relative to the base ref.
+    # Defaults are the calibrated values (see benchmarks/benches/fix_text.rs).
+    inputs:
+      ir_fail_pct:
+        description: 'Ir: fail the job (gungraun soft-limit)'
+        type: number
+        default: 1.0
+      ir_bold_pct:
+        description: 'Ir: bold the cell (significant change)'
+        type: number
+        default: 0.16
+      ir_negligible_pct:
+        description: 'Ir: leave the cell uncoloured (noise)'
+        type: number
+        default: 0.08
+      cycles_fail_pct:
+        description: 'Cycles: fail the job (gungraun soft-limit)'
+        type: number
+        default: 2.0
+      cycles_bold_pct:
+        description: 'Cycles: bold the cell (significant change)'
+        type: number
+        default: 1.0
+      cycles_negligible_pct:
+        description: 'Cycles: leave the cell uncoloured (noise)'
+        type: number
+        default: 0.5
 
 permissions:
   contents: read
@@ -18,6 +46,9 @@ env:
 jobs:
   check:
     name: cargo check
+    # Manual dispatch is benchmark-only; skipping check also skips test and
+    # clippy, which need it.
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -30,6 +61,9 @@ jobs:
 
       - name: Cache cargo build artefacts
         uses: Swatinem/rust-cache@v2
+        with:
+          # Per-runner-image cache key; see the test job's cache step.
+          env-vars: ImageOS
 
       - name: cargo check
         run: cargo check --workspace --all-targets --all-features --locked
@@ -37,106 +71,152 @@ jobs:
   test:
     name: cargo test
     needs: check
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Pinned to 26.04 ahead of the ubuntu-latest migration; the per-image
+    # cargo cache key (below) makes the image choice safe.
+    runs-on: ubuntu-26.04
+    # Two cold instrumented builds on a fresh cache (PR head + base baseline).
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
+          # Full history so the coverage baseline can check out the PR base.
+          fetch-depth: 0
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo build artefacts
         uses: Swatinem/rust-cache@v2
+        with:
+          # rust-cache keys on runner.os ("Linux"), not the Ubuntu release,
+          # so a 24.04->26.04 move would restore pyo3-ffi's cached build
+          # script pinning the now-missing libpython3.12 and break linking.
+          # Hashing ImageOS gives each image its own cache.
+          env-vars: ImageOS
 
       - name: Install cargo-nextest + cargo-llvm-cov
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest,cargo-llvm-cov
 
+      - name: Coverage baseline from the PR base
+        # Run the same instrumented suite on the base commit so the comment
+        # reports a delta. Default nextest profile (not `ci`) so it never
+        # overwrites the head run's target/nextest/ci/junit.xml; a broken
+        # base build just yields "no baseline" via continue-on-error.
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          git checkout -f ${{ github.event.pull_request.base.sha }}
+          git submodule update --init --recursive
+          cargo llvm-cov nextest \
+            --workspace --all-features \
+            --ignore-run-fail \
+            --lcov --output-path base-lcov.info
+
+      - name: Restore the PR checkout
+        if: always() && github.event_name == 'pull_request'
+        run: |
+          git checkout -f ${{ github.sha }}
+          git submodule update --init --recursive
+
       - name: Run tests with coverage
-        # `cargo llvm-cov nextest` runs the test suite under llvm-cov
-        # instrumentation and still honours the `ci` nextest profile,
-        # which writes target/nextest/ci/junit.xml. So one command
-        # produces both the JUnit report AND lcov.info.
-        # Don't fail the step on test failures — the publisher below
-        # sees the JUnit report and decides the verdict via `fail_on_failure`.
+        # One command yields both junit.xml (via the `ci` nextest profile)
+        # and lcov.info. --ignore-run-fail keeps llvm-cov writing lcov.info
+        # (and exiting 0) on test failures, so failing PRs still get
+        # coverage; the JUnit publisher below delivers the verdict.
         continue-on-error: true
         run: |
           cargo llvm-cov nextest \
             --workspace --all-features --profile ci \
+            --ignore-run-fail \
             --lcov --output-path lcov.info
 
+      - name: Fail if the test run produced no report
+        # A build error before nextest runs writes no junit.xml, so every
+        # report step skips via hashFiles() and the job would stay green.
+        if: always() && hashFiles('target/nextest/ci/junit.xml') == ''
+        run: |
+          echo "::error::cargo llvm-cov nextest exited without writing target/nextest/ci/junit.xml — it failed before any tests ran (build error?). See the 'Run tests with coverage' step."
+          exit 1
+
       - name: Make lcov paths workspace-relative
-        # cargo-llvm-cov writes absolute `SF:` paths
-        # (/home/runner/work/<repo>/<repo>/...). zgosalvez compares each
-        # PR-changed file (a repo-root-relative path it gets from the
-        # listFiles API) against the lcov entries with a literal
-        # startsWith and doesn't use its own working-directory input for
-        # this — so without rewriting the prefix every changed file
-        # mismatches and the PR comment shows
-        # "Files changed coverage rate: n/a".
-        if: always() && hashFiles('lcov.info') != ''
-        run: sed -i "s|SF:${{ github.workspace }}/|SF:|g" lcov.info
-
-      - name: Install lcov (genhtml)
-        # Required by zgosalvez/github-actions-report-lcov to build the
-        # HTML report — the action doesn't bundle lcov itself.
-        if: always() && hashFiles('lcov.info') != ''
-        uses: hrishikesh-kadam/setup-lcov@v1
-
-      - name: Shim lcov with a "Reading tracefile" prefix line
-        # zgosalvez's summarize() / detail() strip the first line of
-        # lcov's stdout, assuming it's the legacy "Reading tracefile..."
-        # banner from lcov 1.x. lcov 2.x dropped that banner, so the
-        # strip instead eats real content — the `|Lines |Functions
-        # |Branches` column header in the per-file table. Restore it by
-        # putting a shim earlier in PATH that prepends the banner.
+        # cargo-llvm-cov writes absolute SF: paths; rewrite them repo-
+        # relative so they match `git diff --name-only` (and don't leak
+        # runner paths into the HTML report).
         if: always() && hashFiles('lcov.info') != ''
         run: |
-          LCOV_REAL=$(command -v lcov)
-          mkdir -p "$RUNNER_TEMP/lcov-shim"
-          cat > "$RUNNER_TEMP/lcov-shim/lcov" <<EOF
-          #!/bin/sh
-          echo "Reading tracefile..."
-          exec "$LCOV_REAL" "\$@"
-          EOF
-          chmod +x "$RUNNER_TEMP/lcov-shim/lcov"
-          echo "$RUNNER_TEMP/lcov-shim" >> "$GITHUB_PATH"
+          sed -i "s|SF:${{ github.workspace }}/|SF:|g" lcov.info
+          if [ -f base-lcov.info ]; then
+            sed -i "s|SF:${{ github.workspace }}/|SF:|g" base-lcov.info
+          fi
 
-      - name: Summarise coverage
+      - name: Install lcov (genhtml)
+        # Only genhtml is used; the coverage comment parses lcov.info directly.
         if: always() && hashFiles('lcov.info') != ''
-        id: coverage
-        uses: zgosalvez/github-actions-report-lcov@v7
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lcov
+
+      - name: Generate HTML coverage report
+        if: always() && hashFiles('lcov.info') != ''
+        run: genhtml lcov.info --output-directory coverage-html
+
+      - name: Upload HTML coverage report
+        id: html-report
+        if: always() && hashFiles('lcov.info') != ''
+        uses: actions/upload-artifact@v4
         with:
-          coverage-files: lcov.info
-          # Setting a non-empty artifact-name makes the action generate
-          # the genhtml HTML report and upload it as a workflow artifact.
-          artifact-name: coverage-html-report
-          # Mikepenz's `summary:` input doesn't surface in its PR comment
-          # (only in the job summary / check run), so let zgosalvez post
-          # its own coverage comment. Artifact-id is produced by this
-          # same step so we can't self-reference it — point at the run
-          # page instead.
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          update-comment: true
-          additional-message: |
-            [Download HTML report](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          name: coverage-html-report
+          path: coverage-html
+          retention-days: 14
+
+      - name: Build coverage summary and delta
+        id: coverage
+        if: always() && hashFiles('lcov.info') != ''
+        uses: ./.github/actions/coverage-summary
+        with:
+          pr-number: ${{ github.event.pull_request.number }}
+          base-ref: ${{ github.event.pull_request.base.ref }}
+          base-sha: ${{ github.event.pull_request.base.sha }}
+          artifact-url: ${{ steps.html-report.outputs.artifact-url }}
+
+      - name: Build test results section
+        if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
+        uses: ./.github/actions/junit-summary
+
+      - name: Assemble the CI report section
+        if: always() && (hashFiles('coverage-body.md') != '' || hashFiles('test-body.md') != '')
+        run: |
+          : > ci-body.md
+          for f in test-body.md coverage-body.md; do
+            [ -f "$f" ] && { cat "$f" >> ci-body.md; echo >> ci-body.md; }
+          done
+          cat ci-body.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post (or update) the PR report comment
+        # `ci` section of the shared comment; the benchmark job writes `benchmark`.
+        if: always() && github.event_name == 'pull_request' && hashFiles('ci-body.md') != ''
+        uses: ./.github/actions/pr-comment-section
+        with:
+          section: ci
+          path: ci-body.md
 
       - name: Publish test report
+        # Owns the check run, annotations, and job verdict; the unified PR
+        # comment above replaces its own comment, so that's disabled.
         if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
         uses: mikepenz/action-junit-report@v6
         with:
           report_paths: target/nextest/ci/junit.xml
           check_name: cargo test results
-          # Fail the job on any failing test. Requires main to stay green.
           fail_on_failure: true
           require_tests: true
           detailed_summary: true
-          comment: ${{ github.event_name == 'pull_request' }}
+          comment: false
           summary: |
-            **Coverage:** ${{ steps.coverage.outputs.total-coverage || 'n/a' }}% — [download HTML report](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ steps.coverage.outputs.artifact-id }})
+            **Coverage:** ${{ steps.coverage.outputs.total-coverage || 'n/a' }}% — [download HTML report](${{ steps.html-report.outputs.artifact-url || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }})
 
   clippy:
     name: cargo clippy
@@ -155,14 +235,159 @@ jobs:
 
       - name: Cache cargo build artefacts
         uses: Swatinem/rust-cache@v2
+        with:
+          # Per-runner-image cache key; see the test job's cache step.
+          env-vars: ImageOS
 
-      # rs-clippy-check posts findings as GitHub Checks API annotations on
-      # the commit, and fails the job on any clippy error. GitHub caps
-      # Checks annotations at 10/type/run; the rest still appear in the
-      # check summary.
       - name: Run clippy
-        # `rs-clippy-check` only ships specific versions (no floating major
-        # `v6` tag); pin to the latest release.
+        # Posts findings as Checks annotations (capped at 10/type/run) and
+        # fails the job on any error. Pinned: no floating v6 tag.
         uses: clechasseur/rs-clippy-check@v6.0.4
         with:
           args: --workspace --all-targets --all-features
+
+  changes:
+    name: detect benchmark-relevant changes
+    # Only PRs need path detection; dispatch always benchmarks, push never does.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      benchmark: ${{ steps.filter.outputs.benchmark }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            benchmark:
+              - 'core/**'
+              - 'benchmarks/**'
+              - '.github/workflows/ci.yml'
+              - '.github/actions/benchmark-summary/**'
+
+  benchmark:
+    name: gungraun (vs base)
+    needs: changes
+    # Run on manual dispatch, or on PRs touching benchmark-relevant paths.
+    # !cancelled() lets this evaluate even when `changes` is skipped on
+    # workflow_dispatch.
+    if: >-
+      !cancelled()
+      && (github.event_name == 'workflow_dispatch'
+          || (github.event_name == 'pull_request' && needs.changes.outputs.benchmark == 'true'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GUNGRAUN_COLOR: never
+      CARGO_TERM_COLOR: never
+      # inputs.X is only set on workflow_dispatch; pull_request falls back to
+      # the defaults above. Keep in sync with workflow_dispatch.inputs and the
+      # in-code soft_limits in benchmarks/benches/fix_text.rs.
+      IR_FAIL_PCT:           ${{ inputs.ir_fail_pct           || '1.0'  }}
+      IR_BOLD_PCT:           ${{ inputs.ir_bold_pct           || '0.16' }}
+      IR_NEGLIGIBLE_PCT:     ${{ inputs.ir_negligible_pct     || '0.08' }}
+      CYCLES_FAIL_PCT:       ${{ inputs.cycles_fail_pct       || '2.0'  }}
+      CYCLES_BOLD_PCT:       ${{ inputs.cycles_bold_pct       || '1.0'  }}
+      CYCLES_NEGLIGIBLE_PCT: ${{ inputs.cycles_negligible_pct || '0.5'  }}
+    steps:
+      - name: Checkout PR (with base history)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build artefacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup gungraun-runner and Valgrind
+        uses: gungraun/setup-gungraun@v1
+        with:
+          # Keep this in sync with `benchmarks/Cargo.toml`'s `gungraun` dev-dep.
+          runner-version: 0.19.2
+
+      - name: Resolve PR base and head SHAs
+        id: refs
+        run: |
+          echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          echo "head=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Benchmark base ref (save baseline)
+        id: baseline
+        continue-on-error: true
+        run: |
+          git checkout "${{ steps.refs.outputs.base }}"
+          if [ ! -f benchmarks/Cargo.toml ]; then
+            echo "Base ref has no benchmarks/ crate; skipping baseline." >&2
+            exit 1
+          fi
+          cargo bench -p plsfix-benchmarks -- \
+            --save-baseline=base
+
+      - name: Benchmark PR head (compare against baseline)
+        id: head
+        # Gungraun's soft_limits make this exit non-zero on regression;
+        # continue-on-error lets the comment/artefacts still post and the job
+        # fails at the end. GUNGRAUN_CALLGRIND_LIMITS overrides the in-code
+        # soft_limits with this file's thresholds (single source of truth).
+        continue-on-error: true
+        env:
+          GUNGRAUN_CALLGRIND_LIMITS: "Ir=${{ env.IR_FAIL_PCT }}%,EstimatedCycles=${{ env.CYCLES_FAIL_PCT }}%"
+        run: |
+          # pipefail so `cargo bench | tee` surfaces gungraun's non-zero exit
+          # (the signal steps.head.outcome uses to fail the job).
+          set -o pipefail
+          git checkout "${{ steps.refs.outputs.head }}"
+          if [ "${{ steps.baseline.outcome }}" = "success" ]; then
+            cargo bench -p plsfix-benchmarks -- \
+              --baseline=base --save-summary=json | tee bench-output.txt
+          else
+            echo "No baseline available; running PR benchmarks standalone." | tee bench-output.txt
+            cargo bench -p plsfix-benchmarks -- \
+              --save-summary=json | tee -a bench-output.txt
+          fi
+
+      - name: Upload gungraun artefacts (summaries + flamegraphs)
+        id: artefacts
+        if: always() && hashFiles('target/gungraun/**/summary.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: gungraun-${{ github.event.pull_request.number || github.run_id }}
+          path: |
+            target/gungraun/**/*.svg
+            target/gungraun/**/summary.json
+            target/gungraun/**/*.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Build summary table and comment body
+        if: always() && hashFiles('bench-output.txt') != ''
+        uses: ./.github/actions/benchmark-summary
+        with:
+          baseline: ${{ steps.baseline.outcome }}
+          pr-number: ${{ github.event.pull_request.number }}
+          base-ref: ${{ github.event.pull_request.base.ref }}
+          artifact-url: ${{ steps.artefacts.outputs.artifact-url }}
+          ir-negligible-pct: ${{ env.IR_NEGLIGIBLE_PCT }}
+          ir-bold-pct: ${{ env.IR_BOLD_PCT }}
+          cycles-negligible-pct: ${{ env.CYCLES_NEGLIGIBLE_PCT }}
+          cycles-bold-pct: ${{ env.CYCLES_BOLD_PCT }}
+
+      - name: Publish results to job summary
+        if: always() && hashFiles('bench-body.md') != ''
+        run: cat bench-body.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post (or update) results comment on PR
+        # `benchmark` section of the shared comment; the test job writes `ci`.
+        if: always() && github.event_name == 'pull_request' && hashFiles('bench-body.md') != ''
+        uses: ./.github/actions/pr-comment-section
+        with:
+          section: benchmark
+          path: bench-body.md
+
+      - name: Fail job if the benchmark regressed
+        if: always() && steps.head.outcome == 'failure'
+        run: |
+          echo "::error::gungraun detected a benchmark regression past the configured soft-limit."
+          exit 1

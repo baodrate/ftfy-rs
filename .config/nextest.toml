@@ -1,3 +1,9 @@
+[profile.ci]
+# nextest's default fail-fast cancels the run on the first failure, which
+# truncates both the JUnit report and the coverage data (CI once reported
+# "72 tests run" out of ~340). CI should always run the full suite.
+fail-fast = false
+
 [profile.ci.junit]
 path = "junit.xml"
 store-success-output = false

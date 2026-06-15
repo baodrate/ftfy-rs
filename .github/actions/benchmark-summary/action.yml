@@ -1,0 +1,50 @@
+name: Benchmark summary
+description: Render gungraun summary.json files as a markdown delta table with the full output collapsed below.
+
+inputs:
+  bench-output:
+    description: Captured gungraun stdout from `cargo bench`.
+    default: bench-output.txt
+  summaries-dir:
+    description: Directory searched recursively for summary.json files.
+    default: target/gungraun
+  baseline:
+    description: Outcome of the base-ref benchmark; "success" enables the vs-base header.
+    default: ''
+  pr-number:
+    default: ''
+  base-ref:
+    default: ''
+  artifact-url:
+    default: ''
+  output:
+    description: Markdown output path.
+    default: bench-body.md
+  ir-negligible-pct:
+    description: '|ΔIr| below this is noise (uncoloured).'
+    required: true
+  ir-bold-pct:
+    description: '|ΔIr| at or above this is bolded.'
+    required: true
+  cycles-negligible-pct:
+    required: true
+  cycles-bold-pct:
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        BENCH_OUTPUT: ${{ inputs.bench-output }}
+        SUMMARIES_DIR: ${{ inputs.summaries-dir }}
+        BASELINE: ${{ inputs.baseline }}
+        PR_NUM: ${{ inputs.pr-number }}
+        BASE_REF: ${{ inputs.base-ref }}
+        ARTEFACT_URL: ${{ inputs.artifact-url }}
+        OUTPUT: ${{ inputs.output }}
+        IR_NEGLIGIBLE_PCT: ${{ inputs.ir-negligible-pct }}
+        IR_BOLD_PCT: ${{ inputs.ir-bold-pct }}
+        CYCLES_NEGLIGIBLE_PCT: ${{ inputs.cycles-negligible-pct }}
+        CYCLES_BOLD_PCT: ${{ inputs.cycles-bold-pct }}
+      run: bash "$GITHUB_ACTION_PATH/summarize.sh"
