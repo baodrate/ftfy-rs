@@ -31,8 +31,7 @@ jobs:
       - name: Cache cargo build artefacts
         uses: Swatinem/rust-cache@v2
         with:
-          # Keep the cache per runner image — see the test job's cache
-          # step for the failure this prevents.
+          # Per-runner-image cache key; see the test job's cache step.
           env-vars: ImageOS
 
       - name: cargo check
@@ -41,22 +40,16 @@ jobs:
   test:
     name: cargo test
     needs: check
-    # Pinned to 26.04 (preview until it becomes ubuntu-latest), front-
-    # running the ubuntu-latest migration. (The original reason — apt
-    # lcov 2.4's fixed `lcov --list` — stopped mattering when the
-    # coverage comment moved to parsing lcov.info directly; only genhtml
-    # is used now, and the per-image cargo cache key makes image moves
-    # safe either way.)
+    # Pinned to 26.04 ahead of the ubuntu-latest migration; the per-image
+    # cargo cache key (below) makes the image choice safe.
     runs-on: ubuntu-26.04
-    # The coverage baseline runs the instrumented build + suite a second
-    # time on the PR base, so allow for two cold builds on a fresh cache.
+    # Two cold instrumented builds on a fresh cache (PR head + base baseline).
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
-          # Full history so the coverage-baseline step can check out the
-          # PR base commit.
+          # Full history so the coverage baseline can check out the PR base.
           fetch-depth: 0
 
       - name: Install Rust toolchain
@@ -65,14 +58,10 @@ jobs:
       - name: Cache cargo build artefacts
         uses: Swatinem/rust-cache@v2
         with:
-          # rust-cache's automatic key encodes runner.os ("Linux") but
-          # not the Ubuntu release, so when this job moved to 26.04 it
-          # restored dep artifacts built on 24.04 — including pyo3-ffi's
-          # cached build-script output, which pins the libpython found
-          # at detection time (`-lpython3.12`). 26.04 has no
-          # libpython3.12, so linking the python crate's test binary
-          # failed. Hashing the image name (ImageOS=ubuntu24/ubuntu26/…)
-          # into the key gives every image its own cache.
+          # rust-cache keys on runner.os ("Linux"), not the Ubuntu release,
+          # so a 24.04->26.04 move would restore pyo3-ffi's cached build
+          # script pinning the now-missing libpython3.12 and break linking.
+          # Hashing ImageOS gives each image its own cache.
           env-vars: ImageOS
 
       - name: Install cargo-nextest + cargo-llvm-cov
@@ -81,14 +70,10 @@ jobs:
           tool: cargo-nextest,cargo-llvm-cov
 
       - name: Coverage baseline from the PR base
-        # Mirrors benchmark.yml's baseline pattern: run the same
-        # instrumented suite on the PR's base commit so the coverage
-        # comment can report a delta, not just the PR's absolute
-        # numbers. Uses the default nextest profile (not `ci`) so the
-        # baseline never writes target/nextest/ci/junit.xml — the
-        # published test report must be the head run's. With
-        # continue-on-error, a broken base build just means "no
-        # baseline", and the comment says so.
+        # Run the same instrumented suite on the base commit so the comment
+        # reports a delta. Default nextest profile (not `ci`) so it never
+        # overwrites the head run's target/nextest/ci/junit.xml; a broken
+        # base build just yields "no baseline" via continue-on-error.
         if: github.event_name == 'pull_request'
         continue-on-error: true
         run: |
@@ -106,17 +91,10 @@ jobs:
           git submodule update --init --recursive
 
       - name: Run tests with coverage
-        # `cargo llvm-cov nextest` runs the test suite under llvm-cov
-        # instrumentation and still honours the `ci` nextest profile,
-        # which writes target/nextest/ci/junit.xml. So one command
-        # produces both the JUnit report AND lcov.info.
-        # --ignore-run-fail: without it llvm-cov doesn't write lcov.info
-        # when any test fails, so failing PRs got no coverage comment at
-        # all. With it the step exits 0 on test failures (the JUnit
-        # publisher below still delivers the verdict via
-        # `fail_on_failure`), and continue-on-error keeps build failures
-        # flowing to the missing-report guard instead of stopping the
-        # job here.
+        # One command yields both junit.xml (via the `ci` nextest profile)
+        # and lcov.info. --ignore-run-fail keeps llvm-cov writing lcov.info
+        # (and exiting 0) on test failures, so failing PRs still get
+        # coverage; the JUnit publisher below delivers the verdict.
         continue-on-error: true
         run: |
           cargo llvm-cov nextest \
@@ -125,22 +103,17 @@ jobs:
             --lcov --output-path lcov.info
 
       - name: Fail if the test run produced no report
-        # The coverage step is continue-on-error so that *test failures*
-        # are reported by the JUnit publisher below (fail_on_failure).
-        # But if the build breaks before nextest runs, no junit.xml (or
-        # lcov.info) is ever written and every report step is skipped by
-        # its hashFiles() guard, leaving the job green. Catch that case.
+        # A build error before nextest runs writes no junit.xml, so every
+        # report step skips via hashFiles() and the job would stay green.
         if: always() && hashFiles('target/nextest/ci/junit.xml') == ''
         run: |
           echo "::error::cargo llvm-cov nextest exited without writing target/nextest/ci/junit.xml — it failed before any tests ran (build error?). See the 'Run tests with coverage' step."
           exit 1
 
       - name: Make lcov paths workspace-relative
-        # cargo-llvm-cov writes absolute `SF:` paths
-        # (/home/runner/work/<repo>/<repo>/...). Rewrite them
-        # repo-relative so they match `git diff --name-only` output when
-        # the summary step picks out changed files (and so the HTML
-        # report doesn't embed runner paths).
+        # cargo-llvm-cov writes absolute SF: paths; rewrite them repo-
+        # relative so they match `git diff --name-only` (and don't leak
+        # runner paths into the HTML report).
         if: always() && hashFiles('lcov.info') != ''
         run: |
           sed -i "s|SF:${{ github.workspace }}/|SF:|g" lcov.info
@@ -149,10 +122,7 @@ jobs:
           fi
 
       - name: Install lcov (genhtml)
-        # Only genhtml is used (HTML report artifact) — the coverage
-        # comment below is built by parsing lcov.info directly, which is
-        # also why lcov 2.0's broken `--list` (24.04's apt package) no
-        # longer matters here.
+        # Only genhtml is used; the coverage comment parses lcov.info directly.
         if: always() && hashFiles('lcov.info') != ''
         run: |
           sudo apt-get update
@@ -172,195 +142,30 @@ jobs:
           retention-days: 14
 
       - name: Build coverage summary and delta
-        # Parses head and (when present) base lcov tracefiles into a
-        # markdown body: overall lines/functions rates, the Δ against
-        # the base in percentage points, and a per-file table for the
-        # PR's changed files. Replaces zgosalvez/report-lcov, whose
-        # comment had no base comparison (and whose `lcov --list`
-        # parsing needed a PATH shim to survive lcov 2.x).
         id: coverage
         if: always() && hashFiles('lcov.info') != ''
-        env:
-          PR_NUM: ${{ github.event.pull_request.number }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          ARTIFACT_URL: ${{ steps.html-report.outputs.artifact-url }}
-        run: |
-          set -euo pipefail
-          if [ -n "$BASE_SHA" ]; then
-            git diff --name-only "$BASE_SHA" "$GITHUB_SHA" > changed-files.txt
-          else
-            : > changed-files.txt
-          fi
-          python3 - <<'PY'
-          import os
-
-          # lcov tracefile → {source path: {lf, lh, fnf, fnh}}, i.e.
-          # lines/functions found and hit per file, from the LF/LH/
-          # FNF/FNH summary records.
-          def parse(path):
-              files, cur = {}, None
-              with open(path) as fh:
-                  for line in fh:
-                      line = line.strip()
-                      if line.startswith('SF:'):
-                          cur = {'lf': 0, 'lh': 0, 'fnf': 0, 'fnh': 0}
-                          files[line[3:]] = cur
-                      elif cur is None:
-                          continue
-                      elif line.startswith('LF:'):
-                          cur['lf'] = int(line[3:])
-                      elif line.startswith('LH:'):
-                          cur['lh'] = int(line[3:])
-                      elif line.startswith('FNF:'):
-                          cur['fnf'] = int(line[4:])
-                      elif line.startswith('FNH:'):
-                          cur['fnh'] = int(line[4:])
-                      elif line == 'end_of_record':
-                          cur = None
-              return files
-
-          def totals(files):
-              t = {'lf': 0, 'lh': 0, 'fnf': 0, 'fnh': 0}
-              for v in files.values():
-                  for k in t:
-                      t[k] += v[k]
-              return t
-
-          def pct(hit, found):
-              return None if found == 0 else 100.0 * hit / found
-
-          def fmt_pct(p, hit=None, found=None):
-              if p is None:
-                  return '—'
-              s = f'{p:.1f}%'
-              return f'{s} ({hit}/{found})' if hit is not None else s
-
-          # Δ in percentage points, benchmark-style: |Δ| < 0.05pp is
-          # rounding noise ("≈0"); drops get ⚠️ (bold from 1pp up),
-          # gains get ✅.
-          def fmt_delta(new, old):
-              if new is None or old is None:
-                  return '—'
-              d = new - old
-              if abs(d) < 0.05:
-                  return '≈0'
-              s = f'{d:+.2f}pp'
-              if d < 0:
-                  return f'⚠️ **{s}**' if d <= -1.0 else f'⚠️ {s}'
-              return f'✅ {s}'
-
-          head = parse('lcov.info')
-          base = parse('base-lcov.info') if os.path.exists('base-lcov.info') else None
-          ht = totals(head)
-          bt = totals(base) if base is not None else None
-          changed = [l.strip() for l in open('changed-files.txt') if l.strip()]
-          pr = os.environ.get('PR_NUM', '')
-          base_ref = os.environ.get('BASE_REF', '')
-
-          out = []
-          if pr and bt is not None:
-              out += [f'### Coverage — PR-{pr} vs `{base_ref}`', '']
-          elif pr:
-              out += [f'### Coverage — PR-{pr} (no baseline: the `{base_ref}` run failed)', '']
-          else:
-              out += ['### Coverage', '']
-          out += ['|  | Lines | Functions |', '|---|---:|---:|']
-          if bt is not None:
-              out.append(f"| `{base_ref}` (base) | {fmt_pct(pct(bt['lh'], bt['lf']), bt['lh'], bt['lf'])} | {fmt_pct(pct(bt['fnh'], bt['fnf']), bt['fnh'], bt['fnf'])} |")
-          out.append(f"| {'PR' if pr else 'total'} | {fmt_pct(pct(ht['lh'], ht['lf']), ht['lh'], ht['lf'])} | {fmt_pct(pct(ht['fnh'], ht['fnf']), ht['fnh'], ht['fnf'])} |")
-          if bt is not None:
-              out.append(f"| **Δ** | {fmt_delta(pct(ht['lh'], ht['lf']), pct(bt['lh'], bt['lf']))} | {fmt_delta(pct(ht['fnh'], ht['fnf']), pct(bt['fnh'], bt['fnf']))} |")
-          out.append('')
-
-          if pr:
-              rows = []
-              for path in changed:
-                  h = head.get(path)
-                  if h is None:
-                      continue
-                  b = base.get(path) if base is not None else None
-                  if b is not None:
-                      ld = fmt_delta(pct(h['lh'], h['lf']), pct(b['lh'], b['lf']))
-                      fd = fmt_delta(pct(h['fnh'], h['fnf']), pct(b['fnh'], b['fnf']))
-                  else:
-                      ld = fd = 'new' if base is not None else '—'
-                  rows.append(f"| `{path}` | {fmt_pct(pct(h['lh'], h['lf']))} | {ld} | {fmt_pct(pct(h['fnh'], h['fnf']))} | {fd} |")
-              out += ['**Files changed:**', '']
-              if rows:
-                  out += ['| File | Lines | Δ | Functions | Δ |', '|---|---:|---:|---:|---:|']
-                  out += rows
-              else:
-                  out.append('_No files with coverage data were changed in this PR._')
-              out.append('')
-
-          url = os.environ.get('ARTIFACT_URL', '')
-          if url:
-              out += [f'[Download HTML report]({url})', '']
-
-          with open('coverage-body.md', 'w') as fh:
-              fh.write('\n'.join(out) + '\n')
-
-          lines_pct = pct(ht['lh'], ht['lf'])
-          val = '' if lines_pct is None else f'{lines_pct:.2f}'
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
-              fh.write(f'total-coverage={val}\n')
-          PY
-          cat coverage-body.md >> "$GITHUB_STEP_SUMMARY"
+        uses: ./.github/actions/coverage-summary
+        with:
+          pr-number: ${{ github.event.pull_request.number }}
+          base-ref: ${{ github.event.pull_request.base.ref }}
+          base-sha: ${{ github.event.pull_request.base.sha }}
+          artifact-url: ${{ steps.html-report.outputs.artifact-url }}
 
       - name: Build test results section
-        # The PR comment's test verdict is rendered from junit.xml here
-        # (mikepenz's own PR comment is disabled below) so that tests,
-        # coverage, and the benchmark all share one report comment.
         if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
-        run: |
-          python3 - <<'PY'
-          import xml.etree.ElementTree as ET
-
-          root = ET.parse('target/nextest/ci/junit.xml').getroot()
-          tests = failures = errors = skipped = 0
-          failed = []
-          for ts in root.iter('testsuite'):
-              for tc in ts.iter('testcase'):
-                  tests += 1
-                  if tc.find('failure') is not None:
-                      failures += 1
-                      failed.append(f"{tc.get('classname')}::{tc.get('name')}")
-                  elif tc.find('error') is not None:
-                      errors += 1
-                      failed.append(f"{tc.get('classname')}::{tc.get('name')}")
-                  elif tc.find('skipped') is not None:
-                      skipped += 1
-          passed = tests - failures - errors - skipped
-          verdict = '❌' if failures or errors else '✅'
-          out = ['### Tests', '']
-          out += ['| Result | Ran | Passed | Skipped | Failed |',
-                  '|:---:|---:|---:|---:|---:|',
-                  f'| {verdict} | {tests} | {passed} | {skipped} '
-                  f'| {failures + errors} |']
-          if failed:
-              out += ['', '| Failed test |', '|---|']
-              out += [f'| ❌ `{name}` |' for name in failed]
-          out.append('')
-          with open('test-body.md', 'w') as fh:
-              fh.write('\n'.join(out) + '\n')
-          PY
+        uses: ./.github/actions/junit-summary
 
       - name: Assemble the CI report section
         if: always() && (hashFiles('coverage-body.md') != '' || hashFiles('test-body.md') != '')
         run: |
           : > ci-body.md
           for f in test-body.md coverage-body.md; do
-            if [ -f "$f" ]; then
-              cat "$f" >> ci-body.md
-              echo >> ci-body.md
-            fi
+            [ -f "$f" ] && { cat "$f" >> ci-body.md; echo >> ci-body.md; }
           done
+          cat ci-body.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Post (or update) the PR report comment
-        # Tests + coverage go into the "ci" section of the shared
-        # per-PR report comment; benchmark.yml writes the "benchmark"
-        # section of the same comment.
+        # `ci` section of the shared comment; benchmark.yml writes `benchmark`.
         if: always() && github.event_name == 'pull_request' && hashFiles('ci-body.md') != ''
         uses: ./.github/actions/pr-comment-section
         with:
@@ -368,18 +173,16 @@ jobs:
           path: ci-body.md
 
       - name: Publish test report
+        # Owns the check run, annotations, and job verdict; the unified PR
+        # comment above replaces its own comment, so that's disabled.
         if: always() && hashFiles('target/nextest/ci/junit.xml') != ''
         uses: mikepenz/action-junit-report@v6
         with:
           report_paths: target/nextest/ci/junit.xml
           check_name: cargo test results
-          # Fail the job on any failing test. Requires main to stay green.
           fail_on_failure: true
           require_tests: true
           detailed_summary: true
-          # The PR comment comes from the unified report comment above
-          # (test results + coverage + benchmark in one); mikepenz still
-          # owns the check run, annotations, and the job verdict.
           comment: false
           summary: |
             **Coverage:** ${{ steps.coverage.outputs.total-coverage || 'n/a' }}% — [download HTML report](${{ steps.html-report.outputs.artifact-url || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }})
@@ -402,17 +205,12 @@ jobs:
       - name: Cache cargo build artefacts
         uses: Swatinem/rust-cache@v2
         with:
-          # Keep the cache per runner image — see the test job's cache
-          # step for the failure this prevents.
+          # Per-runner-image cache key; see the test job's cache step.
           env-vars: ImageOS
 
-      # rs-clippy-check posts findings as GitHub Checks API annotations on
-      # the commit, and fails the job on any clippy error. GitHub caps
-      # Checks annotations at 10/type/run; the rest still appear in the
-      # check summary.
       - name: Run clippy
-        # `rs-clippy-check` only ships specific versions (no floating major
-        # `v6` tag); pin to the latest release.
+        # Posts findings as Checks annotations (capped at 10/type/run) and
+        # fails the job on any error. Pinned: no floating v6 tag.
         uses: clechasseur/rs-clippy-check@v6.0.4
         with:
           args: --workspace --all-targets --all-features

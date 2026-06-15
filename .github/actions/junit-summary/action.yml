@@ -1,0 +1,19 @@
+name: JUnit test summary
+description: Render a nextest JUnit report as a markdown test-results table.
+
+inputs:
+  junit:
+    description: JUnit XML report.
+    default: target/nextest/ci/junit.xml
+  output:
+    description: Markdown output path.
+    default: test-body.md
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        JUNIT: ${{ inputs.junit }}
+        OUTPUT: ${{ inputs.output }}
+      run: python3 "$GITHUB_ACTION_PATH/summarize.py"

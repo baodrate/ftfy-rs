@@ -48,11 +48,9 @@ jobs:
     env:
       GUNGRAUN_COLOR: never
       CARGO_TERM_COLOR: never
-      # Thresholds. `inputs.X` is only populated on workflow_dispatch, so on
-      # pull_request triggers we fall back to the same defaults declared above.
-      # Keep these in sync with the defaults in `workflow_dispatch.inputs` (and
-      # with the in-code `soft_limits` in benchmarks/benches/fix_text.rs, which
-      # is what `cargo bench` uses when invoked outside CI).
+      # inputs.X is only set on workflow_dispatch; pull_request falls back to
+      # the defaults above. Keep in sync with workflow_dispatch.inputs and the
+      # in-code soft_limits in benchmarks/benches/fix_text.rs.
       IR_FAIL_PCT:           ${{ inputs.ir_fail_pct           || '1.0'  }}
       IR_BOLD_PCT:           ${{ inputs.ir_bold_pct           || '0.16' }}
       IR_NEGLIGIBLE_PCT:     ${{ inputs.ir_negligible_pct     || '0.08' }}
@@ -97,22 +95,16 @@ jobs:
 
       - name: Benchmark PR head (compare against baseline)
         id: head
-        # Gungraun's soft_limits (declared in benchmarks/benches/fix_text.rs)
-        # make this step exit non-zero on regression. `continue-on-error` lets
-        # downstream steps still post the diff comment / artefacts; the job is
-        # marked failed at the end so CI signals the regression.
-        #
-        # GUNGRAUN_CALLGRIND_LIMITS overrides the in-code `soft_limits` with the
-        # workflow's threshold inputs, so the fail point is a single source of
-        # truth at the top of this file.
+        # Gungraun's soft_limits make this exit non-zero on regression;
+        # continue-on-error lets the comment/artefacts still post and the job
+        # fails at the end. GUNGRAUN_CALLGRIND_LIMITS overrides the in-code
+        # soft_limits with this file's thresholds (single source of truth).
         continue-on-error: true
         env:
           GUNGRAUN_CALLGRIND_LIMITS: "Ir=${{ env.IR_FAIL_PCT }}%,EstimatedCycles=${{ env.CYCLES_FAIL_PCT }}%"
         run: |
-          # Without pipefail, `cargo bench | tee` reports `tee`'s exit
-          # (always 0), masking gungraun's non-zero exit on regression —
-          # which is the whole signal `steps.head.outcome` below uses to
-          # fail the job.
+          # pipefail so `cargo bench | tee` surfaces gungraun's non-zero exit
+          # (the signal steps.head.outcome uses to fail the job).
           set -o pipefail
           git checkout "${{ steps.refs.outputs.head }}"
           if [ "${{ steps.baseline.outcome }}" = "success" ]; then
@@ -147,41 +139,23 @@ jobs:
           # (not under benchmarks/target/).
           mapfile -t summaries < <(find target/gungraun -type f -name summary.json 2>/dev/null | sort)
 
-          # jq program: per gungraun's v6 schema, each summary file is a
-          # BenchmarkSummary with metrics at
-          #   profiles[i].summaries.parts[j].metrics_summary.Callgrind
-          # — a MetricsSummary keyed by metric name (Ir, EstimatedCycles, …).
-          # `diff_pct` is a stringified percentage (e.g. "-12.34" → -12.34%),
-          # serialized as a string to preserve `inf`. We only surface the
-          # delta — raw counts live in the full-output collapsible below.
+          # jq program: per gungraun's v6 schema each summary is a
+          # BenchmarkSummary with Callgrind metrics at
+          #   profiles[0].summaries.parts[0].metrics_summary.Callgrind
+          # keyed by metric name (Ir, EstimatedCycles, …). diff_pct is a
+          # stringified percent (string-typed to preserve `inf`); we surface
+          # only the delta, raw counts go in the collapsible below.
           #
-          # Thresholds were calibrated by re-running the bench against itself
-          # (noise floor) and against tiny / large injected slowdowns:
-          #
-          #   Ir noise on identical code  ≤ 0.0005%
-          #   Ir from one-shot black_box  ≤ 0.0003%      (still noise)
-          #   Ir from per-byte fold once  0.06 – 0.23%   (real, small)
-          #   Ir from 50× per-byte fold   2.96 – 11.46%  (fails build)
-          #
-          # Callgrind cycle counts fold in cache modelling, which is *much*
-          # more sensitive to code layout: an inert black_box shifted cycles
-          # by ±0.2% with zero perf change. Cycles thresholds are therefore
-          # ~6× looser than Ir to stay above that layout-noise floor.
-          #
-          # The bold cut-off should sit roughly halfway between the noise band
-          # and the soft-limit, so bold ≡ "moving towards the fail threshold".
-          # Rendered via GitHub's KaTeX inline-math syntax, the only way to
-          # colour cells inside a PR-comment table.
-          #
-          # Thresholds (negligible / bold) come from job env vars set by the
-          # workflow_dispatch inputs at the top of this file. jq reads them
-          # straight out of env to keep them as a single source of truth.
+          # Cycles thresholds run ~6× looser than Ir: Callgrind cycle counts
+          # model cache behaviour and shift ±0.2% on code layout alone. Bold
+          # sits between the noise band and the fail soft-limit, and colours
+          # the cell via GitHub's KaTeX inline-math (the only way to colour a
+          # table cell). Thresholds come from the job env vars (single source
+          # of truth), which jq reads straight from env.
           read -r -d '' JQ_PROG <<'JQ' || true
-          # Format a float as a signed fixed two-decimal string, e.g.
-          # 1 → "+1.00", 0.85 → "+0.85", 0 → "0.00", -1.04 → "-1.04".
-          # jq's built-in `tostring` strips trailing zeros, so we work in
-          # cents (×100 integers), left-pad to at least 3 digits, and sub
-          # in the decimal point.
+          # Signed fixed two-decimal string (1 → "+1.00", -1.04 → "-1.04").
+          # jq's tostring strips trailing zeros, so work in cents (×100),
+          # pad to 3 digits, and insert the decimal point.
           def fmt2($x):
             (($x * 100) | round) as $c
             | (if $c < 0 then "-" elif $c > 0 then "+" else "" end) as $sg
@@ -271,9 +245,7 @@ jobs:
         run: cat bench-body.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Post (or update) results comment on PR
-        # Writes the "benchmark" section of the shared per-PR report
-        # comment (ci.yml's test job writes the "ci" section with test
-        # results + coverage), so the PR carries one bot comment total.
+        # `benchmark` section of the shared comment; ci.yml writes `ci`.
         if: always() && github.event_name == 'pull_request' && hashFiles('bench-body.md') != ''
         uses: ./.github/actions/pr-comment-section
         with:

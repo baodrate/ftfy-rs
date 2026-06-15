@@ -1,12 +1,9 @@
 name: Update PR report comment section
 description: >
-  Create or update one named section of the single per-PR CI report
-  comment. Each workflow owns a section delimited by HTML-comment
-  markers; updating one section leaves the others untouched, which is
-  what lets independent workflows (CI, Benchmark) share one comment.
-  Note: concurrent updates race on read-modify-write — the loser's
-  section reverts to its previous content until its workflow runs
-  again. The window is milliseconds, so this is accepted.
+  Create or update one marker-delimited section of the single per-PR
+  report comment, leaving other sections intact so independent workflows
+  can share one comment. Concurrent updates race on read-modify-write;
+  the loser's section reverts until its workflow next runs (accepted).
 inputs:
   section:
     description: Section id, unique per writer (e.g. "ci", "benchmark").
