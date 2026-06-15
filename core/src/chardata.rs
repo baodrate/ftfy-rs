@@ -831,6 +831,14 @@ mod coverage_demo_tests {
     }
 
     #[test]
+    fn consonants_are_counted() {
+        // Covers count_ascii_consonants so a re-run shows updated
+        // per-file numbers in the same CI comment.
+        assert_eq!(count_ascii_consonants("plsfix"), 5);
+        assert_eq!(count_ascii_consonants("aeiou"), 0);
+    }
+
+    #[test]
     fn vowel_count_demo_failure() {
         // Intentionally wrong: "plsfix" contains exactly one vowel. This
         // failure exists to exercise the CI failure path (the JUnit
